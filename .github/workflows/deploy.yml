@@ -17,10 +17,15 @@ jobs:
         mkdir -p ~/.ssh
         echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
         chmod 600 ~/.ssh/id_rsa
-        ssh-keyscan ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+        # 使用硬编码的服务器地址
+        SERVER_HOST="47.98.44.27"
+        ssh-keyscan $SERVER_HOST >> ~/.ssh/known_hosts
         
     - name: Deploy to server
       run: |
+        # 使用硬编码的服务器地址
+        SERVER_HOST="47.98.44.27"
+        
         # 传输文件到服务器
         rsync -avz --delete \
           --exclude='node_modules' \
@@ -28,10 +33,10 @@ jobs:
           --exclude='dist' \
           --exclude='build' \
           -e "ssh -i ~/.ssh/id_rsa" \
-          ./ root@${{ secrets.SERVER_HOST }}:/root/stock-trader/
+          ./ root@$SERVER_HOST:/root/stock-trader/
           
         # 在服务器上执行部署命令
-        ssh -i ~/.ssh/id_rsa root@${{ secrets.SERVER_HOST }} << 'EOF'
+        ssh -i ~/.ssh/id_rsa root@$SERVER_HOST << 'EOF'
           cd /root/stock-trader
           docker stop stock-trader-app || true
           docker rm stock-trader-app || true
