@@ -26,17 +26,24 @@ jobs:
         # 使用硬编码的服务器地址
         SERVER_HOST="47.98.44.27"
         
-        # 传输文件到服务器
-        rsync -avz --delete \
-          --exclude='node_modules' \
-          --exclude='.git' \
-          --exclude='dist' \
-          --exclude='build' \
-          -e "ssh -i ~/.ssh/id_rsa" \
-          ./ root@$SERVER_HOST:/root/stock-trader/
-          
+        # 创建压缩包，排除不需要的文件
+        tar --exclude='node_modules' --exclude='.git' --exclude='dist' --exclude='build' -czf stock-trader.tar.gz .
+        
+        # 传输压缩包到服务器
+        scp -i ~/.ssh/id_rsa stock-trader.tar.gz root@$SERVER_HOST:/root/
+        
         # 在服务器上执行部署命令
         ssh -i ~/.ssh/id_rsa root@$SERVER_HOST << 'EOF'
+          cd /root
+          # 删除旧目录
+          rm -rf stock-trader
+          # 创建新目录
+          mkdir -p stock-trader
+          # 解压新文件
+          tar -xzf stock-trader.tar.gz -C /root/stock-trader
+          # 删除压缩包
+          rm stock-trader.tar.gz
+          
           cd /root/stock-trader
           docker stop stock-trader-app || true
           docker rm stock-trader-app || true
