@@ -26,8 +26,8 @@ jobs:
         # 使用硬编码的服务器地址
         SERVER_HOST="47.98.44.27"
         
-        # 创建压缩包，排除不需要的文件
-        tar --exclude='node_modules' --exclude='.git' --exclude='dist' --exclude='build' -czf stock-trader.tar.gz .
+        # 使用简单的 tar 命令，忽略文件修改警告
+        tar --exclude='node_modules' --exclude='.git' --exclude='dist' --exclude='build' --warning=no-file-changed -czf stock-trader.tar.gz .
         
         # 传输压缩包到服务器
         scp -i ~/.ssh/id_rsa stock-trader.tar.gz root@$SERVER_HOST:/root/
