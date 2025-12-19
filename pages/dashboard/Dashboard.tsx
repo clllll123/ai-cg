@@ -1,0 +1,417 @@
+import React, { useState, useEffect } from 'react';
+import { useUser } from '../../context/UserContext';
+import { Link, useNavigate } from 'react-router-dom';
+import { adminApi } from '../../services/api';
+import LevelUpModal from '../../components/LevelUpModal';
+
+const StatCard: React.FC<{ label: string; value: string | number; icon: string; color: string }> = ({ label, value, icon, color }) => (
+    <div className={`group bg-gray-800/40 backdrop-blur-md border border-gray-700/50 p-5 rounded-2xl flex items-center gap-4 hover:bg-gray-700/50 transition-all hover:scale-[1.02] shadow-lg hover:shadow-${color}-900/20`}>
+        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center bg-${color}-500/10 text-${color}-400 group-hover:bg-${color}-500 group-hover:text-white transition-colors`}>
+             <span className="material-icons">{icon}</span>
+        </div>
+        <div>
+            <div className="text-gray-400 text-xs font-mono uppercase tracking-wider mb-1">{label}</div>
+            <div className="text-2xl font-black text-white tracking-tight">{value}</div>
+        </div>
+    </div>
+);
+
+const TaskItem: React.FC<{ title: string; reward: string; isDone: boolean }> = ({ title, reward, isDone }) => (
+    <div className="flex items-center justify-between p-3 bg-gray-900/50 rounded-lg border border-gray-800 mb-2">
+        <div className="flex items-center gap-3">
+            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${isDone ? 'border-green-500 bg-green-500' : 'border-gray-600'}`}>
+                {isDone && <span className="material-icons text-white text-[12px]">check</span>}
+            </div>
+            <span className={isDone ? 'text-gray-500 line-through' : 'text-gray-300'}>{title}</span>
+        </div>
+        <span className="text-xs font-mono text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded">{reward}</span>
+    </div>
+);
+
+const StudentDashboard: React.FC<{ user: any }> = ({ user }) => (
+    <div className="space-y-6">
+        {/* Primary Actions - Mobile Optimized */}
+        <div className="grid grid-cols-2 gap-4">
+            <Link to="/game/scan" className="bg-gradient-to-br from-blue-600 to-blue-800 p-6 rounded-2xl shadow-lg shadow-blue-900/40 flex flex-col items-center justify-center gap-3 hover:scale-[1.02] transition-transform relative overflow-hidden group">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-2xl -mr-8 -mt-8 group-hover:bg-white/20 transition-colors"></div>
+                <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm">
+                    <span className="material-icons text-3xl text-white">qr_code_scanner</span>
+                </div>
+                <div className="font-bold text-lg">扫码加入</div>
+            </Link>
+            <Link to="/game/join" className="bg-gradient-to-br from-purple-600 to-purple-800 p-6 rounded-2xl shadow-lg shadow-purple-900/40 flex flex-col items-center justify-center gap-3 hover:scale-[1.02] transition-transform relative overflow-hidden group">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-2xl -mr-8 -mt-8 group-hover:bg-white/20 transition-colors"></div>
+                <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm">
+                    <span className="material-icons text-3xl text-white">keyboard</span>
+                </div>
+                <div className="font-bold text-lg">输入房号</div>
+            </Link>
+        </div>
+
+        {/* Secondary: Stats */}
+        <div className="bg-gray-800/40 backdrop-blur border border-gray-700/50 rounded-2xl p-5">
+            <h3 className="text-sm font-bold text-gray-400 mb-4 flex items-center gap-2">
+                <span className="material-icons text-xs">analytics</span> 个人数据
+            </h3>
+            <div className="grid grid-cols-3 gap-3">
+                 <div className="text-center p-3 bg-gray-900/50 rounded-xl border border-gray-800/50">
+                    <div className="text-xs text-gray-500 mb-1">胜率</div>
+                    <div className="font-black text-lg text-green-400 font-mono">
+                        {user.stats?.totalGames ? ((user.stats.wins / user.stats.totalGames) * 100).toFixed(0) : 0}%
+                    </div>
+                 </div>
+                 <div className="text-center p-3 bg-gray-900/50 rounded-xl border border-gray-800/50">
+                    <div className="text-xs text-gray-500 mb-1">场次</div>
+                    <div className="font-black text-lg text-white font-mono">{user.stats?.totalGames || 0}</div>
+                 </div>
+                 <div className="text-center p-3 bg-gray-900/50 rounded-xl border border-gray-800/50">
+                    <div className="text-xs text-gray-500 mb-1">收益</div>
+                    <div className="font-black text-lg text-yellow-400 font-mono">+12.5%</div>
+                 </div>
+            </div>
+        </div>
+
+        {/* Tasks & Other */}
+        <div className="bg-gray-800/30 border border-gray-700 rounded-2xl p-6">
+            <h3 className="font-bold mb-4 flex items-center gap-2">
+                <span className="material-icons text-yellow-500">assignment</span> 每日任务
+            </h3>
+            <TaskItem title="完成一场交易对局" reward="+100 XP" isDone={false} />
+            <TaskItem title="总收益超过 20%" reward="+50 金币" isDone={false} />
+        </div>
+    </div>
+);
+
+const TeacherDashboard: React.FC<{ user: any }> = ({ user }) => (
+    <div className="space-y-8">
+        {/* Primary Actions */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+             <Link to="/game/bigscreen" className="group relative bg-gradient-to-br from-blue-900 to-blue-950 border border-blue-500/30 p-8 rounded-3xl overflow-hidden hover:border-blue-500/60 transition-all shadow-lg hover:shadow-blue-900/20">
+                <div className="absolute top-0 right-0 w-40 h-40 bg-blue-500/10 rounded-full blur-3xl -mr-10 -mt-10 group-hover:bg-blue-500/20 transition-colors"></div>
+                <div className="relative z-10">
+                    <div className="w-16 h-16 rounded-2xl bg-blue-600 flex items-center justify-center mb-6 shadow-lg shadow-blue-900/40 group-hover:scale-110 transition-transform">
+                        <span className="material-icons text-3xl text-white">add_circle</span>
+                    </div>
+                    <h3 className="text-2xl font-black mb-2 text-white">创建对局 (Host)</h3>
+                    <p className="text-blue-200/60 text-sm leading-relaxed max-w-xs">配置市场初始参数，生成游戏房间二维码，邀请学生加入。</p>
+                </div>
+             </Link>
+
+             <Link to="/stats" className="group relative bg-gradient-to-br from-purple-900 to-purple-950 border border-purple-500/30 p-8 rounded-3xl overflow-hidden hover:border-purple-500/60 transition-all shadow-lg hover:shadow-purple-900/20">
+                <div className="absolute top-0 right-0 w-40 h-40 bg-purple-500/10 rounded-full blur-3xl -mr-10 -mt-10 group-hover:bg-purple-500/20 transition-colors"></div>
+                <div className="relative z-10">
+                    <div className="w-16 h-16 rounded-2xl bg-purple-600 flex items-center justify-center mb-6 shadow-lg shadow-purple-900/40 group-hover:scale-110 transition-transform">
+                        <span className="material-icons text-3xl text-white">bar_chart</span>
+                    </div>
+                    <h3 className="text-2xl font-black mb-2 text-white">数据中心</h3>
+                    <p className="text-purple-200/60 text-sm leading-relaxed max-w-xs">查看历史对局记录，分析学生交易行为和表现数据。</p>
+                </div>
+             </Link>
+        </div>
+
+        {/* Stats Overview */}
+        <div>
+            <h3 className="font-bold mb-4 flex items-center gap-2 text-gray-400">
+                <span className="material-icons">query_stats</span> 教学概览
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <StatCard label="累计开局" value={user.stats?.totalGames || 0} icon="layers" color="blue" />
+                <StatCard label="参与学生" value="1,204" icon="groups" color="purple" />
+                <StatCard label="平均收益" value="+8.4%" icon="trending_up" color="green" />
+            </div>
+        </div>
+    </div>
+);
+
+const DashboardContent: React.FC<{ user: any; canHost: boolean }> = ({ user, canHost }) => {
+    return canHost ? <TeacherDashboard user={user} /> : <StudentDashboard user={user} />;
+};
+
+export const Dashboard: React.FC = () => {
+    const { user, logout } = useUser();
+    const navigate = useNavigate();
+
+    const [showCreateTeacher, setShowCreateTeacher] = useState(false);
+    const [teacherForm, setTeacherForm] = useState({ username: '', password: '', email: '' });
+    const [createMsg, setCreateMsg] = useState('');
+    const [showLevelUp, setShowLevelUp] = useState(false);
+    const [levelUpData, setLevelUpData] = useState({
+        oldLevel: 1,
+        newLevel: 1,
+        oldRank: '青铜',
+        newRank: '青铜',
+        expGained: 0
+    });
+
+    // 检查是否有等级提升需要显示
+    useEffect(() => {
+        if (user && user.levelUpData) {
+            setLevelUpData(user.levelUpData);
+            setShowLevelUp(true);
+            // 清除等级提升数据，避免重复显示
+            setTimeout(() => {
+                if (user.clearLevelUpData) {
+                    user.clearLevelUpData();
+                }
+            }, 3000);
+        }
+    }, [user]);
+
+    if (!user) {
+        return <div className="p-8 text-white">加载中...</div>;
+    }
+
+    const isTeacher = user.role === 'teacher';
+    const isAdmin = user.role === 'admin';
+    const canHost = isTeacher || isAdmin;
+
+    const handleCreateTeacher = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setCreateMsg('');
+        try {
+            await adminApi.createTeacher(teacherForm);
+            setCreateMsg('✅ 教师账户创建成功');
+            setTeacherForm({ username: '', password: '', email: '' });
+            setTimeout(() => {
+                setShowCreateTeacher(false);
+                setCreateMsg('');
+            }, 2000);
+        } catch (err: any) {
+            setCreateMsg('❌ ' + (err.response?.data?.error || err.message));
+        }
+    };
+
+    return (
+        <div className="min-h-screen bg-[#050b14] text-white relative overflow-hidden">
+            {/* Background Effects */}
+            <div className="absolute top-0 left-0 w-full h-full pointer-events-none z-0">
+                <div className="absolute top-[-10%] right-[-5%] w-[500px] h-[500px] bg-blue-600/20 rounded-full blur-[120px] animate-pulse"></div>
+                <div className="absolute bottom-[-10%] left-[-5%] w-[600px] h-[600px] bg-purple-600/10 rounded-full blur-[100px] animate-pulse" style={{ animationDelay: '2s' }}></div>
+            </div>
+
+            {/* Mobile Header */}
+            <div className="md:hidden bg-gray-900/60 backdrop-blur-xl border-b border-gray-800 p-4 z-20 relative sticky top-0">
+                <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-3">
+                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center font-bold text-xs">
+                             {(user.nickname || user.username).substr(0, 2).toUpperCase()}
+                         </div>
+                        <h1 className="text-lg font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">
+                            AI 股市
+                        </h1>
+                    </div>
+                    
+                    <div className="flex gap-2 items-center">
+                        <div className="flex items-center gap-1 px-2 py-1 bg-gray-800/60 backdrop-blur border border-yellow-500/20 rounded-full text-xs">
+                            <span className="material-icons text-yellow-500 text-xs">monetization_on</span>
+                            <span className="font-mono font-bold text-yellow-400">{user.coins.toLocaleString()}</span>
+                        </div>
+                        <button onClick={() => { logout(); navigate('/'); }} className="w-8 h-8 flex items-center justify-center bg-gray-800 rounded-full text-gray-400 hover:text-white border border-gray-700">
+                            <span className="material-icons text-sm">logout</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* Desktop Layout */}
+            <div className="hidden md:flex min-h-screen">
+                {/* Sidebar */}
+                <div className="w-64 border-r border-gray-800 bg-gray-900/40 backdrop-blur-xl flex flex-col z-10 relative">
+                    <div className="p-6 border-b border-gray-800">
+                        <h1 className="text-xl font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">
+                            AI 股市操盘手
+                        </h1>
+                        <div className="text-[10px] text-gray-500 font-mono mt-1">沉浸式金融交易模拟系统</div>
+                    </div>
+
+                    <div className="p-4 flex-1">
+                        <nav className="space-y-2">
+                            <button className="w-full flex items-center gap-3 p-3 bg-blue-600/10 text-blue-400 rounded-lg font-bold border border-blue-600/20">
+                                <span className="material-icons">dashboard</span>
+                                <span>控制台</span>
+                            </button>
+                            {isAdmin && (
+                                <button onClick={() => setShowCreateTeacher(true)} className="w-full flex items-center gap-3 p-3 hover:bg-gray-800 text-purple-400 rounded-lg transition-colors">
+                                    <span className="material-icons">admin_panel_settings</span>
+                                    <span>添加教师</span>
+                                </button>
+                            )}
+                            <button className="w-full flex items-center gap-3 p-3 hover:bg-gray-800 text-gray-400 rounded-lg transition-colors">
+                                <span className="material-icons">emoji_events</span>
+                                <span>排行榜</span>
+                            </button>
+                            <button className="w-full flex items-center gap-3 p-3 hover:bg-gray-800 text-gray-400 rounded-lg transition-colors">
+                                <span className="material-icons">assignment</span>
+                                <span>任务中心</span>
+                            </button>
+                             <button className="w-full flex items-center gap-3 p-3 hover:bg-gray-800 text-gray-400 rounded-lg transition-colors">
+                                <span className="material-icons">school</span>
+                                <span>{canHost ? '课程管理' : '我的课程'}</span>
+                            </button>
+                        </nav>
+                    </div>
+
+                    <div className="p-4 border-t border-gray-800">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center font-bold text-sm">
+                                {(user.nickname || user.username).substr(0, 2).toUpperCase()}
+                            </div>
+                            <div className="overflow-hidden">
+                                <div className="font-bold truncate">{user.nickname || user.username}</div>
+                                <div className="text-xs text-gray-500 capitalize">{user.role} • Lv.{user.level} {user.rank}</div>
+                            </div>
+                        </div>
+                        
+                        {/* Level Progress Bar */}
+                        <div className="mb-4">
+                            <div className="flex justify-between text-xs text-gray-500 mb-1">
+                                <span>Lv.{user.level}</span>
+                                <span>Lv.{user.level + 1}</span>
+                            </div>
+                            <div className="w-full bg-gray-700 rounded-full h-2">
+                                <div 
+                                    className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-500"
+                                    style={{ 
+                                        width: `${Math.min(100, (user.xp / Math.max(1, user.nextLevelExp)) * 100)}%` 
+                                    }}
+                                ></div>
+                            </div>
+                            <div className="text-xs text-gray-400 mt-1 text-center">
+                                {user.xp} / {user.nextLevelExp} XP
+                            </div>
+                        </div>
+                        <button onClick={() => { logout(); navigate('/'); }} className="w-full flex items-center justify-center gap-2 p-2 border border-gray-700 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-gray-800 transition-colors">
+                            <span className="material-icons text-sm">logout</span> 退出登录
+                        </button>
+                    </div>
+                </div>
+
+                {/* Main Content */}
+                <div className="flex-1 p-8 overflow-y-auto z-10 relative">
+                    <header className="flex justify-between items-center mb-8">
+                        <div>
+                            <h2 className="text-3xl font-black mb-1 bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
+                                欢迎回来, {user.nickname || user.username} 👋
+                            </h2>
+                            <p className="text-gray-400 text-sm font-medium">准备好今天的市场挑战了吗？</p>
+                        </div>
+                        
+                        <div className="flex gap-4">
+                             <div className="flex items-center gap-2 px-4 py-2 bg-gray-800/60 backdrop-blur border border-yellow-500/20 rounded-full shadow-lg shadow-yellow-900/10 hover:border-yellow-500/50 transition-colors">
+                                <span className="material-icons text-yellow-500 text-sm">monetization_on</span>
+                                <span className="font-mono font-bold text-yellow-400">{user.coins.toLocaleString()}</span>
+                             </div>
+                             <div className="flex items-center gap-2 px-4 py-2 bg-gray-800/60 backdrop-blur border border-blue-500/20 rounded-full shadow-lg shadow-blue-900/10 hover:border-blue-500/50 transition-colors">
+                                <span className="material-icons text-blue-500 text-sm">star</span>
+                                <span className="font-mono font-bold text-blue-400">{user.xp.toLocaleString()} XP</span>
+                             </div>
+                        </div>
+                    </header>
+                    
+                    {/* Desktop Dashboard Content */}
+                    <DashboardContent user={user} canHost={canHost} />
+                </div>
+            </div>
+
+            {/* Mobile Content */}
+            <div className="md:hidden p-4 overflow-y-auto z-10 relative pb-20">
+                <header className="mb-6">
+                    <h2 className="text-2xl font-black mb-1 bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
+                        欢迎回来, {user.nickname || user.username} 👋
+                    </h2>
+                    <p className="text-gray-400 text-sm font-medium">准备好今天的市场挑战了吗？</p>
+                </header>
+
+                {/* Mobile Dashboard Content */}
+                <DashboardContent user={user} canHost={canHost} />
+            </div>
+
+            {/* Create Teacher Modal */}
+            {showCreateTeacher && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-gray-900 border border-gray-700 p-8 rounded-2xl w-full max-w-md relative">
+                        <button onClick={() => setShowCreateTeacher(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white">
+                            <span className="material-icons">close</span>
+                        </button>
+                        <h2 className="text-2xl font-bold mb-6 text-purple-400 flex items-center gap-2">
+                             <span className="material-icons">school</span> 添加教师账户
+                        </h2>
+                        
+                        {createMsg && (
+                            <div className={`p-3 rounded mb-4 text-sm ${createMsg.startsWith('✅') ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
+                                {createMsg}
+                            </div>
+                        )}
+
+                        <form onSubmit={handleCreateTeacher} className="space-y-4">
+                            <div>
+                                <label className="block text-gray-400 text-sm mb-1">用户名</label>
+                                <input 
+                                    type="text" 
+                                    value={teacherForm.username}
+                                    onChange={e => setTeacherForm({...teacherForm, username: e.target.value})}
+                                    className="w-full bg-gray-800 border border-gray-600 rounded p-2 text-white"
+                                    required
+                                    minLength={3}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-gray-400 text-sm mb-1">邮箱 (可选)</label>
+                                <input 
+                                    type="email" 
+                                    value={teacherForm.email}
+                                    onChange={e => setTeacherForm({...teacherForm, email: e.target.value})}
+                                    className="w-full bg-gray-800 border border-gray-600 rounded p-2 text-white"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-gray-400 text-sm mb-1">初始密码</label>
+                                <input 
+                                    type="password" 
+                                    value={teacherForm.password}
+                                    onChange={e => setTeacherForm({...teacherForm, password: e.target.value})}
+                                    className="w-full bg-gray-800 border border-gray-600 rounded p-2 text-white"
+                                    required
+                                    minLength={6}
+                                />
+                            </div>
+                            <button type="submit" className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 rounded-lg mt-4">
+                                创建教师
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Level Up Modal */}
+            <LevelUpModal
+                isOpen={showLevelUp}
+                onClose={() => setShowLevelUp(false)}
+                oldLevel={levelUpData.oldLevel}
+                newLevel={levelUpData.newLevel}
+                oldRank={levelUpData.oldRank}
+                newRank={levelUpData.newRank}
+                expGained={levelUpData.expGained}
+            />
+
+            {/* Test Level Up Button (Development Only) */}
+            {process.env.NODE_ENV === 'development' && (
+                <button
+                    onClick={() => {
+                        setLevelUpData({
+                            oldLevel: 5,
+                            newLevel: 6,
+                            oldRank: '黄金',
+                            newRank: '铂金',
+                            expGained: 150
+                        });
+                        setShowLevelUp(true);
+                    }}
+                    className="fixed bottom-4 right-4 bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-full shadow-lg z-50"
+                >
+                    测试等级提升
+                </button>
+            )}
+        </div>
+    );
+};

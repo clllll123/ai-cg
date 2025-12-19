@@ -1,0 +1,43 @@
+# 依赖文件
+node_modules/
+server/node_modules/
+
+# 构建输出
+dist/
+server/dist/
+build/
+
+# 日志文件
+*.log
+logs/
+
+# 环境文件
+.env
+.env.local
+.env.production
+.env.development
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# 临时文件
+*.tmp
+*.temp
+
+# 文档
+README.md
+*.md
+
+# 测试文件
+*.test.ts
+*.spec.ts
+__tests__/
+
+# 其他
+.DS_Store
+Thumbs.db

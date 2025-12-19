@@ -1,0 +1,38 @@
+name: Deploy to Alibaba Cloud
+
+on:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up SSH
+      uses: webfactory/ssh-agent@v0.8.0
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+        
+    - name: Deploy to server
+      run: |
+        # 传输文件到服务器
+        rsync -avz --delete \
+          --exclude='node_modules' \
+          --exclude='.git' \
+          --exclude='dist' \
+          --exclude='build' \
+          ./ root@${{ secrets.SERVER_HOST }}:/root/stock-trader/
+          
+        # 在服务器上执行部署命令
+        ssh -o StrictHostKeyChecking=no root@${{ secrets.SERVER_HOST }} << 'EOF'
+          cd /root/stock-trader
+          docker stop stock-trader-app || true
+          docker rm stock-trader-app || true
+          docker build -t ai-stock-trader .
+          docker run -d -p 3000:3000 --name stock-trader-app ai-stock-trader
+          echo "部署完成！"
+        EOF

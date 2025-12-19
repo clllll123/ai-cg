@@ -1,0 +1,5 @@
+{
+  "name": "AI 股市操盘手",
+  "description": "由 Gemini AI 驱动的模拟股市竞技游戏，具有大屏控制端和玩家交易端双视角。",
+  "requestFramePermissions": []
+}

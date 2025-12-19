@@ -1,0 +1,112 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// 用户模型
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  email     String?  @unique
+  password  String   // 加密存储
+  nickname  String   // 必填，游戏内显示名称
+  avatar    String?
+  role      String   @default("USER") // USER, ADMIN
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // 游戏数据
+  totalGames    Int @default(0)
+  totalWins     Int @default(0)
+  totalAssets   Float @default(100000) // 全局资产（非单局）
+  
+  // 玩家成长系统
+  level       Int    @default(1)     // 玩家等级
+  experience  Int    @default(0)     // 当前经验值
+  nextLevelExp Int   @default(100)   // 升级所需经验值
+  rank        String @default("青铜") // 段位：青铜、白银、黄金、铂金、钻石、大师、王者
+  
+  // 关联
+  gameHistory   GameResult[]
+  ownedItems    UserItem[]
+
+  // 密码重置
+  resetToken       String?
+  resetTokenExpiry DateTime?
+}
+
+// 游戏房间模型
+model GameRoom {
+  id          String   @id @default(uuid())
+  code        String   @unique // 4位房间号
+  hostId      String
+  status      String   @default("LOBBY") // LOBBY, PLAYING, ENDED
+  config      String   // JSON string of GameSettings
+  createdAt   DateTime @default(now())
+  endedAt     DateTime?
+  
+  players     GamePlayer[]
+  results     GameResult[]
+}
+
+// 单局游戏玩家
+model GamePlayer {
+  id        String   @id @default(uuid())
+  roomId    String
+  userId    String?  // 可为空，如果是游客或AI
+  name      String
+  isBot     Boolean  @default(false)
+  
+  // 游戏内状态
+  cash      Float
+  debt      Float    @default(0)
+  portfolio String   // JSON string: { "stockId": quantity }
+  
+  room      GameRoom @relation(fields: [roomId], references: [id])
+  
+  @@unique([roomId, name])
+}
+
+// 游戏结果记录 (用于排行榜)
+model GameResult {
+  id          String   @id @default(uuid())
+  roomId      String
+  userId      String?
+  finalAssets Float
+  rank        Int
+  playedAt    DateTime @default(now())
+
+  user        User?    @relation(fields: [userId], references: [id])
+  room        GameRoom @relation(fields: [roomId], references: [id])
+}
+
+// 道具定义
+model Item {
+  id          String   @id
+  name        String
+  description String
+  effectType  String   // PRICE_PEEK, FREEZE_STOCK, TAX_AUDIT
+  price       Float
+  
+  userItems   UserItem[]
+}
+
+// 用户持有的道具
+model UserItem {
+  id        String   @id @default(uuid())
+  userId    String
+  itemId    String
+  quantity  Int      @default(1)
+  
+  user      User     @relation(fields: [userId], references: [id])
+  item      Item     @relation(fields: [itemId], references: [id])
+  
+  @@unique([userId, itemId])
+}
