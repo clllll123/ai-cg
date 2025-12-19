@@ -18,6 +18,12 @@ dist-ssr
 .idea
 .DS_Store
 *.suo
+
+# SSH keys and sensitive files
+chendalei
+chendalei.pub
+*.pem
+*.key
 *.ntvs*
 *.njsproj
 *.sln

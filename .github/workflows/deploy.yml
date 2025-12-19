@@ -17,6 +17,11 @@ jobs:
       with:
         ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
         
+    - name: Add server to known hosts
+      run: |
+        mkdir -p ~/.ssh
+        ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+        
     - name: Deploy to server
       run: |
         # 传输文件到服务器
@@ -28,7 +33,7 @@ jobs:
           ./ root@${{ secrets.SERVER_HOST }}:/root/stock-trader/
           
         # 在服务器上执行部署命令
-        ssh -o StrictHostKeyChecking=no root@${{ secrets.SERVER_HOST }} << 'EOF'
+        ssh root@${{ secrets.SERVER_HOST }} << 'EOF'
           cd /root/stock-trader
           docker stop stock-trader-app || true
           docker rm stock-trader-app || true
