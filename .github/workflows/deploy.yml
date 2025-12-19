@@ -13,13 +13,10 @@ jobs:
       uses: actions/checkout@v4
       
     - name: Set up SSH
-      uses: webfactory/ssh-agent@v0.8.0
-      with:
-        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-        
-    - name: Add server to known hosts
       run: |
         mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
         ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
         
     - name: Deploy to server
@@ -30,10 +27,11 @@ jobs:
           --exclude='.git' \
           --exclude='dist' \
           --exclude='build' \
+          -e "ssh -i ~/.ssh/id_rsa" \
           ./ root@${{ secrets.SERVER_HOST }}:/root/stock-trader/
           
         # 在服务器上执行部署命令
-        ssh root@${{ secrets.SERVER_HOST }} << 'EOF'
+        ssh -i ~/.ssh/id_rsa root@${{ secrets.SERVER_HOST }} << 'EOF'
           cd /root/stock-trader
           docker stop stock-trader-app || true
           docker rm stock-trader-app || true
