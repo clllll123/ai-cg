@@ -138,6 +138,50 @@
       
       .scrollbar-hide::-webkit-scrollbar { display: none; }
       .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+      /* NEW: Button Loading & Success Animations */
+      @keyframes successPulse {
+        0%, 100% { background-color: rgba(34, 197, 94, 0.6); }
+        50% { background-color: rgba(34, 197, 94, 0.8); }
+      }
+      .animate-success-pulse { animation: successPulse 1s ease-in-out infinite; }
+
+      @keyframes bounceIn {
+        0% { transform: scale(0.3); opacity: 0; }
+        50% { transform: scale(1.05); opacity: 1; }
+        70% { transform: scale(0.9); }
+        100% { transform: scale(1); opacity: 1; }
+      }
+      .animate-bounce-in { animation: bounceIn 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards; }
+
+      @keyframes scaleIn {
+        0% { transform: scale(0); opacity: 0; }
+        100% { transform: scale(1); opacity: 1; }
+      }
+      .animate-scale-in { animation: scaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+
+      @keyframes popIn {
+        0% { transform: scale(0.5); opacity: 0; }
+        70% { transform: scale(1.1); }
+        100% { transform: scale(1); opacity: 1; }
+      }
+      .animate-pop-in { animation: popIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+
+      .animate-spin-slow { animation: spin 2s linear infinite; }
+
+      @keyframes shake {
+        0%, 100% { transform: translateX(0); }
+        10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+        20%, 40%, 60%, 80% { transform: translateX(4px); }
+      }
+      .animate-shake { animation: shake 0.5s ease-in-out; }
+
+      @keyframes wiggle {
+        0%, 100% { transform: rotate(0deg); }
+        25% { transform: rotate(-10deg); }
+        75% { transform: rotate(10deg); }
+      }
+      .animate-wiggle { animation: wiggle 0.3s ease-in-out; }
     </style>
 <script type="importmap">
 {

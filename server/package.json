@@ -10,7 +10,18 @@
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write src/**/*.ts",
     "prisma:generate": "prisma generate",
-    "prisma:push": "prisma db push"
+    "prisma:push": "prisma db push",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:unit": "jest --testPathPattern=\"unit\"",
+    "test:integration": "jest --testPathPattern=\"integration\"",
+    "test:api": "jest --testPathPattern=\"api\"",
+    "test:security": "jest --testPathPattern=\"security\"",
+    "test:performance": "artillery run performance/auth-load-test.yml --output performance/report.json",
+    "test:stress": "artillery run performance/stress-test.yml --output performance/stress-report.json",
+    "test:performance:report": "artillery report performance/report.json",
+    "test:stress:report": "artillery report performance/stress-report.json"
   },
   "dependencies": {
     "@prisma/client": "^5.10.0",
@@ -31,10 +42,16 @@
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
+    "@types/jest": "^29.5.0",
     "@types/jsonwebtoken": "^9.0.5",
     "@types/morgan": "^1.9.9",
     "@types/node": "^20.11.0",
+    "@types/supertest": "^6.0.0",
+    "artillery": "^2.0.27",
+    "jest": "^29.7.0",
     "prisma": "^5.10.0",
+    "supertest": "^6.3.3",
+    "ts-jest": "^29.1.0",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.3.0"
   }

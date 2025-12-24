@@ -1,0 +1,69 @@
+config:
+  target: 'http://localhost:${PORT:-3001}'
+  phases:
+    - duration: 30
+      arrivalRate: 5
+      name: 'Ramp up phase'
+    - duration: 60
+      arrivalRate: 100
+      name: 'Sustained load phase'
+    - duration: 30
+      arrivalRate: 200
+      name: 'Stress phase'
+    - duration: 30
+      arrivalRate: 50
+      name: 'Recovery phase'
+  defaults:
+    headers:
+      Content-Type: 'application/json'
+  processor: './performance/processors.js'
+
+scenarios:
+  - name: 'Concurrent User Registration'
+    weight: 30
+    flow:
+      - function: 'generateUserData'
+      - post:
+          url: '/api/auth/register'
+          json:
+            username: "{{ username }}"
+            password: "{{ password }}"
+            nickname: "{{ nickname }}"
+            email: "{{ email }}"
+          expect:
+            - statusCode: 201
+
+  - name: 'Concurrent User Login'
+    weight: 40
+    flow:
+      - post:
+          url: '/api/auth/login'
+          json:
+            username: "testuser{{ $randomNumber(1, 10) }}"
+            password: "password123"
+          expect:
+            - statusCode: 200
+
+  - name: 'Game API Stress Test'
+    weight: 30
+    flow:
+      - post:
+          url: '/api/auth/login'
+          json:
+            username: "testuser{{ $randomNumber(1, 10) }}"
+            password: "password123"
+          capture:
+            json: '$.token'
+            as: 'authToken'
+      - get:
+          url: '/api/game/status'
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          expect:
+            - statusCode: 200
+      - get:
+          url: '/api/game/leaderboard'
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          expect:
+            - statusCode: 200

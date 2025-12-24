@@ -2,10 +2,8 @@
 // 处理游戏结果保存、经验值计算等逻辑
 
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/db';
 import { ExperienceService } from '../services/experienceService';
-
-const prisma = new PrismaClient();
 
 interface GameResultData {
   roomId: string;
@@ -119,6 +117,15 @@ export const saveGameResult = async (req: Request, res: Response) => {
 export const getGameHistory = async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
+
+    // 检查用户是否存在
+    const user = await prisma.user.findUnique({
+      where: { id: userId }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: '用户不存在' });
+    }
 
     const gameHistory = await prisma.gameResult.findMany({
       where: { userId },

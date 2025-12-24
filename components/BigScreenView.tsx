@@ -6,6 +6,9 @@ import { useUser } from '../context/UserContext';
 import { GamePhase, Stock, MarketNews, TradingSession, Danmu, MidDayReport, Sector, NewsFrequency, NewsType, StockTransaction, DailyEvent } from '../types';
 import StockChart from './StockChart';
 import AdminDashboard from './AdminDashboard';
+import CompanyOperationsPanel from './CompanyOperationsPanel';
+import InvestmentMarketplacePanel from './InvestmentMarketplacePanel';
+import { NewsDashboard } from './NewsMarqueePanel';
 import { gameApi } from '../services/api';
 
 // --- Daily Event Display Component ---
@@ -433,56 +436,6 @@ const ReportModal: React.FC<{ report: MidDayReport, title: string }> = ({ report
     </div>
 );
 
-const NewsItem: React.FC<{ item: MarketNews }> = React.memo(({ item }) => {
-    let borderColor = 'border-gray-600';
-    let bgColor = 'bg-gray-800/80';
-    let icon = 'article';
-    let label = '新闻';
-    let labelColor = 'text-gray-400';
-
-    if (item.type === NewsType.EXPERT) {
-        borderColor = 'border-blue-500';
-        bgColor = 'bg-blue-900/40';
-        icon = 'psychology';
-        label = '专家';
-        labelColor = 'text-blue-400';
-    } else if (item.type === NewsType.RUMOR) {
-        borderColor = 'border-purple-500';
-        bgColor = 'bg-purple-900/40';
-        icon = 'visibility_off';
-        label = '传闻';
-        labelColor = 'text-purple-400';
-    } else if (item.type === NewsType.SENTIMENT) {
-        borderColor = 'border-orange-500';
-        bgColor = 'bg-orange-900/40';
-        icon = 'poll';
-        label = '情绪';
-        labelColor = 'text-orange-400';
-    }
-
-    return (
-        <div className={`mb-3 p-3 rounded-lg border-l-4 ${borderColor} ${bgColor} relative overflow-hidden shrink-0 shadow-lg transform hover:scale-[1.01] transition-transform`}>
-            {item.type === NewsType.RUMOR && <div className="absolute inset-0 bg-purple-500/10 pointer-events-none animate-pulse"></div>}
-            <div className="flex justify-between items-start mb-1 relative z-10">
-                <div className="flex items-center gap-2">
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border border-white/10 ${labelColor} bg-black/30 flex items-center gap-1`}>
-                        <span className="material-icons text-[10px]">{icon}</span> {label}
-                    </span>
-                    <span className="text-[10px] text-gray-400 font-mono">{new Date(item.timestamp).toLocaleTimeString()}</span>
-                </div>
-                <span className={`text-[10px] px-1.5 rounded ${item.impact === 'positive' ? 'bg-red-900 text-red-300' : (item.impact === 'negative' ? 'bg-green-900 text-green-300' : 'bg-gray-700 text-gray-300')}`}>
-                    {item.impact === 'positive' ? '利好' : (item.impact === 'negative' ? '利空' : '中性')}
-                </span>
-            </div>
-            <div className="relative z-10">
-                {item.source && <div className="text-[10px] text-gray-400 mb-0.5 font-bold">{item.source}:</div>}
-                <div className="text-sm font-bold text-gray-100 leading-tight mb-1">{item.title}</div>
-                <div className={`text-xs ${item.type === NewsType.RUMOR ? 'text-gray-300 italic' : 'text-gray-300'} leading-snug`}>{item.content}</div>
-            </div>
-        </div>
-    );
-});
-
 const getNewsLabel = (freq: NewsFrequency) => {
     switch(freq) {
         case NewsFrequency.LOW: return '安静';
@@ -495,9 +448,10 @@ const getNewsLabel = (freq: NewsFrequency) => {
 
 const BigScreenView: React.FC = () => {
   const navigate = useNavigate();
-  const { stocks, marketIndex, players, timeLeft, phase, tradingSession, currentDay, news, roomCode, settings, danmuList, isHostOnline, startGame, regenerateStocks, updateSettings, midDayReport, dailyReport } = useGame();
+  const { stocks, marketIndex, players, timeLeft, phase, tradingSession, currentDay, news, roomCode, settings, danmuList, isHostOnline, startGame, regenerateStocks, updateSettings, midDayReport, dailyReport, startupCompanies, selectedCompany, availableDecisions, decisionResults, selectCompany, executeCompanyDecision, generateStartupCompanies, investmentMarketplace, createInvestmentCompetition, createInvestmentCooperation, joinCompetition, joinCooperation, createAlliance, joinAlliance, refreshInvestmentMarketplace } = useGame();
   const { user, updateProfile } = useUser();
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [showInvestmentMarketplace, setShowInvestmentMarketplace] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
   const [showStockPreview, setShowStockPreview] = useState(false);
   const [lobbyStep, setLobbyStep] = useState<'config' | 'scan'>('config');
@@ -511,6 +465,15 @@ const BigScreenView: React.FC = () => {
   // Daily Event State
   const [dailyEvent, setDailyEvent] = useState<DailyEvent | null>(null);
   const [eventLoading, setEventLoading] = useState(false);
+
+  // Handle step parameter from URL for optimized flow
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const stepParam = params.get('step');
+    if (stepParam === 'scan') {
+      setLobbyStep('scan');
+    }
+  }, []);
   
   // Fetch Daily Event
    useEffect(() => {
@@ -525,7 +488,7 @@ const BigScreenView: React.FC = () => {
          const marketTrend = 0; // Default neutral trend for lobby
          const activeSectors = Object.values(Sector).slice(0, 5); // Use first 5 sectors
          
-         const response = await fetch('http://localhost:3001/api/events/generate', {
+         const response = await fetch('/api/events/generate', {
            method: 'POST',
            headers: {
              'Content-Type': 'application/json',
@@ -742,6 +705,11 @@ const BigScreenView: React.FC = () => {
       if (lobbyStep === 'config') {
           return (
             <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900 text-white relative bg-grid-pattern p-8">
+                {/* Debug: Show startup companies count */}
+                <div className="fixed bottom-4 right-4 z-50 glass-panel px-3 py-1 rounded text-xs text-gray-400">
+                  创业公司: {startupCompanies.length}
+                </div>
+                
                 {/* Back Button */}
                 <button 
                     onClick={() => navigate('/dashboard')} 
@@ -1082,7 +1050,7 @@ const BigScreenView: React.FC = () => {
          {/* 3. RIGHT: INFO DASHBOARD (40%) - REDESIGNED */}
          <div className="w-2/5 flex flex-col gap-4 overflow-hidden relative">
             
-            {/* A. NEWS FEED (Top - 60%) - AUTO SCROLLING MARQUEE */}
+            {/* NEWS FEED (Top - 60%) - NEW CATEGORIZED NEWS DISPLAY */}
             <div className="glass-panel rounded-2xl flex flex-col h-[60%] overflow-hidden relative border border-blue-500/20 shadow-lg">
                 <div className="bg-blue-900/10 border-b border-blue-500/20 p-2 shrink-0 flex justify-between items-center z-20">
                     <div className="flex items-center gap-2">
@@ -1092,22 +1060,9 @@ const BigScreenView: React.FC = () => {
                     {latestExpert && <div className="text-[10px] bg-blue-900 text-blue-300 px-2 py-0.5 rounded animate-pulse">专家解读中</div>}
                 </div>
                 
-                {/* Scroll Container */}
-                <div className="flex-1 overflow-hidden relative">
-                    {news.length === 0 ? (
-                        <div className="text-gray-500 text-center mt-4 text-xs">等待市场消息...</div>
-                    ) : (
-                        <div className="absolute w-full animate-scroll-up p-2">
-                            {/* Original List */}
-                            <div className="space-y-2 pb-2">
-                                {news.map((n) => <NewsItem key={`orig-${n.id}`} item={n} />)}
-                            </div>
-                            {/* Duplicate List for seamless loop */}
-                            <div className="space-y-2 pb-2">
-                                {news.map((n) => <NewsItem key={`dup-${n.id}`} item={n} />)}
-                            </div>
-                        </div>
-                    )}
+                {/* News Dashboard with Categorized Display */}
+                <div className="flex-1 overflow-hidden p-2">
+                    <NewsDashboard news={news} onNewsClick={(item) => console.log('News clicked:', item)} />
                 </div>
             </div>
 
@@ -1159,7 +1114,56 @@ const BigScreenView: React.FC = () => {
       </div>
       
       {showAdminPanel && <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center"><AdminDashboard onClose={() => setShowAdminPanel(false)} /></div>}
+      {selectedCompany && (
+        <CompanyOperationsPanel
+          company={selectedCompany}
+          availableDecisions={availableDecisions}
+          onExecuteDecision={executeCompanyDecision}
+          onClose={() => selectCompany(null)}
+          playerCash={players.find(p => p.id === user?.id)?.cash || 0}
+        />
+      )}
+      {showInvestmentMarketplace && (
+        <InvestmentMarketplacePanel
+          marketplace={investmentMarketplace}
+          startupCompanies={startupCompanies}
+          onCreateCompetition={createInvestmentCompetition}
+          onCreateCooperation={createInvestmentCooperation}
+          onJoinCompetition={joinCompetition}
+          onJoinCooperation={joinCooperation}
+          onCreateAlliance={createAlliance}
+          onJoinAlliance={joinAlliance}
+          onRefresh={refreshInvestmentMarketplace}
+          onClose={() => setShowInvestmentMarketplace(false)}
+          playerCash={players.find(p => p.id === user?.id)?.cash || 0}
+        />
+      )}
       <button onClick={() => setShowAdminPanel(true)} className="fixed bottom-4 right-4 z-50 glass-panel p-3 rounded-full text-gray-400 hover:text-white shadow-xl hover:bg-blue-600 transition-all"><span className="material-icons">settings</span></button>
+      
+      {/* Startup Companies Button */}
+      {phase === GamePhase.TRADING && (
+        <button 
+          onClick={() => {
+            if (startupCompanies.length === 0) {
+              generateStartupCompanies();
+            }
+            selectCompany(startupCompanies[0] || null);
+          }}
+          className="fixed bottom-4 right-20 z-50 glass-panel p-3 rounded-full text-gray-400 hover:text-white shadow-xl hover:bg-purple-600 transition-all"
+        >
+          <span className="material-icons">business_center</span>
+        </button>
+      )}
+      
+      {/* Investment Marketplace Button */}
+      {phase === GamePhase.TRADING && (
+        <button 
+          onClick={() => setShowInvestmentMarketplace(true)}
+          className="fixed bottom-4 right-36 z-50 glass-panel p-3 rounded-full text-gray-400 hover:text-white shadow-xl hover:bg-blue-600 transition-all"
+        >
+          <span className="material-icons">account_balance</span>
+        </button>
+      )}
       
       {/* Back to Dashboard Button */}
       <button 

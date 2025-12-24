@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useGame } from '../context/GameContext';
-import { GamePhase, Sector, Stock, Player, TradingSession, LoanProvider, StockTransaction, OrderBookItem } from '../types';
+import { GamePhase, Sector, Stock, Player, TradingSession, LoanProvider, StockTransaction, OrderBookItem, OrderType } from '../types';
 import StockChart from './StockChart';
 import PlayerLogin from './PlayerLogin';
 
@@ -23,7 +23,7 @@ const BackToDashboardButton: React.FC = () => {
 };
 
 // --- Network Signal Indicator ---
-const NetworkSignal: React.FC<{ lastSyncTime: number }> = ({ lastSyncTime }) => {
+const NetworkSignal: React.FC<{ lastSyncTime: number; connectionError: string | null }> = ({ lastSyncTime, connectionError }) => {
     const [status, setStatus] = useState<'excellent' | 'good' | 'fair' | 'poor'>('excellent');
 
     useEffect(() => {
@@ -41,7 +41,11 @@ const NetworkSignal: React.FC<{ lastSyncTime: number }> = ({ lastSyncTime }) => 
     let icon = 'wifi';
     let label = 'Live';
 
-    if (status === 'excellent') { color = 'text-green-500'; icon = 'wifi'; label = '极佳'; }
+    if (connectionError) {
+        color = 'text-red-500';
+        icon = 'wifi_off';
+        label = '断开';
+    } else if (status === 'excellent') { color = 'text-green-500'; icon = 'wifi'; label = '极佳'; }
     else if (status === 'good') { color = 'text-green-400'; icon = 'wifi'; label = '良好'; }
     else if (status === 'fair') { color = 'text-yellow-500'; icon = 'network_wifi_2_bar'; label = '一般'; }
     else { color = 'text-red-500'; icon = 'signal_wifi_bad'; label = '弱'; }
@@ -56,58 +60,58 @@ const NetworkSignal: React.FC<{ lastSyncTime: number }> = ({ lastSyncTime }) => 
 
 // --- Loading Screen ---
 const LoadingScreen: React.FC = () => (
-    <div className="flex flex-col items-center justify-center h-full bg-[#050b14] text-white p-8">
-        <div className="w-12 h-12 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <h2 className="text-sm font-bold text-blue-400">正在接入交易所...</h2>
+    <div className="flex flex-col items-center justify-center h-full bg-[#050b14] text-white p-6 sm:p-8">
+        <div className="w-10 h-10 sm:w-12 sm:h-12 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-3 sm:mb-4"></div>
+        <h2 className="text-xs sm:text-sm font-bold text-blue-400">正在接入交易所...</h2>
     </div>
 );
 
 // --- Lobby Screen ---
 const LobbyScreen: React.FC<{ isSynced: boolean, onSync: () => void, roomCode: string }> = ({ isSynced, onSync, roomCode }) => {
     return (
-        <div className="flex flex-col h-full bg-[#050b14] text-white relative overflow-hidden p-6">
+        <div className="flex flex-col h-full bg-[#050b14] text-white relative overflow-hidden p-4 sm:p-6">
             <BackToDashboardButton />
             <div className="flex-1 flex flex-col items-center justify-center z-10">
-                <div className="mb-8 relative">
+                <div className="mb-6 sm:mb-8 relative">
                     <div className="absolute inset-0 bg-blue-500 blur-3xl opacity-20 rounded-full"></div>
-                    <span className="material-icons text-6xl text-blue-400 relative z-10">meeting_room</span>
+                    <span className="material-icons text-5xl sm:text-6xl text-blue-400 relative z-10">meeting_room</span>
                 </div>
                 
-                <h1 className="text-2xl font-black mb-2 text-center">交易候机室</h1>
-                <div className="text-xs font-mono bg-gray-900 px-3 py-1 rounded border border-gray-800 text-gray-500 mb-8">
+                <h1 className="text-xl sm:text-2xl font-black mb-2 text-center">交易候机室</h1>
+                <div className="text-[10px] sm:text-xs font-mono bg-gray-900 px-2.5 sm:px-3 py-1 rounded border border-gray-800 text-gray-500 mb-6 sm:mb-8">
                     ROOM: {roomCode}
                 </div>
 
-                <div className="w-full max-w-xs bg-gray-900/80 backdrop-blur border border-gray-800 p-6 rounded-2xl shadow-xl">
-                    <div className="flex justify-between items-center mb-4">
-                        <span className="text-xs text-gray-400">市场数据同步</span>
+                <div className="w-full max-w-xs bg-gray-900/80 backdrop-blur border border-gray-800 p-4 sm:p-6 rounded-2xl shadow-xl">
+                    <div className="flex justify-between items-center mb-3 sm:mb-4">
+                        <span className="text-[10px] sm:text-xs text-gray-400">市场数据同步</span>
                         {isSynced ? (
-                            <span className="text-green-500 text-xs font-bold flex items-center gap-1">
-                                <span className="material-icons text-[14px]">check_circle</span> 就绪
+                            <span className="text-green-500 text-[10px] sm:text-xs font-bold flex items-center gap-1">
+                                <span className="material-icons text-[12px] sm:text-[14px]">check_circle</span> 就绪
                             </span>
                         ) : (
-                            <span className="text-yellow-500 text-xs font-bold flex items-center gap-1 animate-pulse">
-                                <span className="material-icons text-[14px]">downloading</span> 下载中
+                            <span className="text-yellow-500 text-[10px] sm:text-xs font-bold flex items-center gap-1 animate-pulse">
+                                <span className="material-icons text-[12px] sm:text-[14px]">downloading</span> 下载中
                             </span>
                         )}
                     </div>
                     
-                    <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden mb-6">
+                    <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden mb-4 sm:mb-6">
                         <div className={`h-full transition-all duration-500 ${isSynced ? 'bg-green-500 w-full' : 'bg-blue-500 w-1/3 animate-pulse'}`}></div>
                     </div>
 
                     {!isSynced ? (
-                        <button onClick={onSync} className="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold shadow-lg text-xs">
+                        <button onClick={onSync} className="w-full py-2.5 sm:py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold shadow-lg text-[10px] sm:text-xs">
                             点击同步数据
                         </button>
                     ) : (
-                        <div className="text-center bg-green-900/10 border border-green-900/30 py-3 rounded-xl">
-                            <span className="text-green-500 text-xs font-bold animate-pulse">等待大屏开盘...</span>
+                        <div className="text-center bg-green-900/10 border border-green-900/30 py-2.5 sm:py-3 rounded-xl">
+                            <span className="text-green-500 text-[10px] sm:text-xs font-bold animate-pulse">等待大屏开盘...</span>
                         </div>
                     )}
                 </div>
             </div>
-            <div className="text-center text-[10px] text-gray-600">请保持屏幕常亮</div>
+            <div className="text-center text-[9px] sm:text-[10px] text-gray-600">请保持屏幕常亮</div>
         </div>
     );
 };
@@ -633,7 +637,7 @@ const StockDetail: React.FC<StockDetailProps> = ({ stock, player, onClose, onCan
 
 // --- MAIN INTERFACE ---
 const MobileInterface: React.FC = () => {
-  const { players, activePlayerId, stocks, placeOrder, cancelOrder, phase, tradingSession, notifications, marketIndex, roomCode, isDataSynced, requestDataSync, settings, borrowMoney, repayDebt, currentDay, timeLeft, lastSyncTime } = useGame();
+  const { players, activePlayerId, stocks, placeOrder, cancelOrder, phase, tradingSession, notifications, marketIndex, roomCode, isDataSynced, requestDataSync, settings, borrowMoney, repayDebt, currentDay, timeLeft, lastSyncTime, mqttConnectionError } = useGame();
   
   const [activeTab, setActiveTab] = useState<'market' | 'portfolio' | 'me'>('market');
   const [viewingStockId, setViewingStockId] = useState<string | null>(null);
@@ -646,6 +650,12 @@ const MobileInterface: React.FC = () => {
   const [tradePrice, setTradePrice] = useState<number>(0); 
   const [isOrdering, setIsOrdering] = useState(false);
   const [showOrderSubmitted, setShowOrderSubmitted] = useState(false); 
+  const [orderType, setOrderType] = useState<OrderType>(OrderType.LIMIT);
+  const [stopPrice, setStopPrice] = useState<number>(0);
+  const [trailingPercent, setTrailingPercent] = useState<number>(5);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  const [icebergSize, setIcebergSize] = useState<number>(0);
+  const [tradeError, setTradeError] = useState<string | null>(null); 
 
   const player = players.find(p => p.id === activePlayerId);
   const initialIndex = 3000;
@@ -683,7 +693,12 @@ const MobileInterface: React.FC = () => {
     if (!s) return;
     setTradeAction(action);
     setTradeAmount(100);
-    setTradePrice(s.price); 
+    setTradePrice(s.price);
+    setOrderType(OrderType.LIMIT);
+    setStopPrice(0);
+    setTrailingPercent(5);
+    setShowAdvancedSettings(false);
+    setIcebergSize(0);
     setIsTradeModalOpen(true);
   };
   
@@ -711,8 +726,36 @@ const MobileInterface: React.FC = () => {
 
   const executeTrade = () => {
     if (viewingStockId) {
+      const tradeCost = tradePrice * tradeAmount;
+      const isBuy = tradeAction === 'buy';
+      
+      if (isBuy && player.cash < tradeCost) {
+        setTradeError(`资金不足！需要 ¥${tradeCost.toLocaleString()}，但只有 ¥${player.cash.toLocaleString()}`);
+        return;
+      }
+      
+      if (tradeAmount <= 0) {
+        setTradeError('交易数量必须大于0');
+        return;
+      }
+      
+      if (tradePrice <= 0) {
+        setTradeError('交易价格必须大于0');
+        return;
+      }
+      
+      setTradeError(null);
       setIsOrdering(true);
-      placeOrder(viewingStockId, tradePrice, tradeAmount, tradeAction === 'buy');
+      placeOrder(
+          viewingStockId, 
+          tradePrice, 
+          tradeAmount, 
+          tradeAction === 'buy',
+          orderType,
+          stopPrice > 0 ? stopPrice : undefined,
+          orderType === OrderType.TRAILING_STOP ? trailingPercent : undefined,
+          icebergSize > 0 ? icebergSize : undefined
+      );
       setTimeout(() => { 
           setIsOrdering(false); 
           setShowOrderSubmitted(true);
@@ -745,7 +788,7 @@ const MobileInterface: React.FC = () => {
         <div>
           <div className="flex items-center gap-2 mb-0.5">
              <div className="text-[10px] text-gray-500 font-bold uppercase">Total Assets</div>
-             <NetworkSignal lastSyncTime={lastSyncTime} />
+             <NetworkSignal lastSyncTime={lastSyncTime} connectionError={mqttConnectionError} />
           </div>
           <div className="text-2xl font-bold font-mono tracking-tighter">¥{equity.toLocaleString(undefined, {maximumFractionDigits:0})}</div>
           <div className="flex items-center gap-2 mt-0.5">
@@ -843,10 +886,28 @@ const MobileInterface: React.FC = () => {
            <div className="w-full bg-[#111] border-t border-gray-800 p-6 rounded-t-3xl shadow-2xl animate-slide-up relative overflow-hidden" onClick={e => e.stopPropagation()}>
               
               {showOrderSubmitted && (
-                  <div className="absolute inset-0 bg-[#111] z-50 flex flex-col items-center justify-center animate-fade-in">
-                      <div className="w-20 h-20 rounded-full border-4 border-blue-500 flex items-center justify-center mb-4"><span className="material-icons text-5xl text-blue-500 animate-pulse">send</span></div>
-                      <h3 className="text-2xl font-bold text-white mb-1">委托已送出</h3>
-                      <p className="text-gray-500 text-sm">正在等待主机确认...</p>
+                  <div className="absolute inset-0 bg-[#111] z-50 flex flex-col items-center justify-center animate-fade-in p-6">
+                      <div className="w-20 h-20 rounded-full border-4 border-green-500 flex items-center justify-center mb-4"><span className="material-icons text-5xl text-green-500 animate-pulse">check_circle</span></div>
+                      <h3 className="text-2xl font-bold text-white mb-1">订单已提交</h3>
+                      <p className="text-gray-500 text-sm mb-4">正在等待主机确认...</p>
+                      <div className="bg-gray-900 rounded-xl p-4 w-full border border-gray-800">
+                          <div className="flex justify-between text-sm mb-2">
+                              <span className="text-gray-400">股票</span>
+                              <span className="text-white font-medium">{liveStock.name}</span>
+                          </div>
+                          <div className="flex justify-between text-sm mb-2">
+                              <span className="text-gray-400">操作</span>
+                              <span className={tradeAction === 'buy' ? 'text-red-400 font-medium' : 'text-green-400 font-medium'}>{tradeAction === 'buy' ? '买入' : '卖出'}</span>
+                          </div>
+                          <div className="flex justify-between text-sm mb-2">
+                              <span className="text-gray-400">价格</span>
+                              <span className="text-white font-medium">¥{tradePrice.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                              <span className="text-gray-400">数量</span>
+                              <span className="text-white font-medium">{tradeAmount}股</span>
+                          </div>
+                      </div>
                   </div>
               )}
 
@@ -854,22 +915,163 @@ const MobileInterface: React.FC = () => {
                   <h3 className={`font-bold text-xl ${tradeAction==='buy'?'text-red-500':'text-green-500'}`}>
                       {tradeAction === 'buy' ? '买入' : '卖出'} <span className="text-white text-base font-normal">{liveStock.name}</span>
                   </h3>
-                  <button onClick={() => setIsTradeModalOpen(false)} className="text-gray-500 text-2xl">✕</button>
+                  <button onClick={() => { setIsTradeModalOpen(false); setTradeError(null); }} className="text-gray-500 text-2xl">✕</button>
               </div>
+              
+              {tradeError && (
+                  <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded-xl flex items-start gap-2 animate-shake">
+                      <span className="material-icons text-red-500 text-lg mt-0.5">error</span>
+                      <div className="flex-1">
+                          <div className="text-sm font-bold text-red-400 mb-1">交易失败</div>
+                          <div className="text-xs text-red-300">{tradeError}</div>
+                      </div>
+                      <button onClick={() => setTradeError(null)} className="text-red-400 hover:text-red-300">
+                          <span className="material-icons text-lg">close</span>
+                      </button>
+                  </div>
+              )}
               
               <div className="space-y-4 mb-6">
                   <div className="flex justify-between items-center bg-gray-900 px-3 py-2 rounded text-xs border border-gray-700">
                       <span className="text-gray-400">可用资金</span>
                       <span className="text-yellow-400 font-mono font-bold text-sm">¥{player.cash.toLocaleString()}</span>
                   </div>
-                  <div className="flex items-center justify-between">
-                      <span className="text-gray-500 text-xs">价格</span>
-                      <div className="flex items-center gap-3">
-                          <button onClick={()=>setTradePrice(Number((tradePrice-0.1).toFixed(2)))} className="w-10 h-10 bg-gray-800 rounded text-xl">-</button>
-                          <span className="text-2xl font-mono font-bold w-24 text-center">{tradePrice.toFixed(2)}</span>
-                          <button onClick={()=>setTradePrice(Number((tradePrice+0.1).toFixed(2)))} className="w-10 h-10 bg-gray-800 rounded text-xl">+</button>
+                  
+                  <div>
+                      <span className="text-gray-500 text-xs mb-2 block">订单类型</span>
+                      <div className="grid grid-cols-3 gap-2">
+                          <button 
+                              onClick={() => setOrderType(OrderType.MARKET)}
+                              className={`py-2 px-3 rounded-lg text-xs font-medium transition-all ${
+                                  orderType === OrderType.MARKET 
+                                  ? 'bg-blue-600 text-white shadow-lg' 
+                                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                              }`}
+                          >
+                              市价单
+                          </button>
+                          <button 
+                              onClick={() => setOrderType(OrderType.LIMIT)}
+                              className={`py-2 px-3 rounded-lg text-xs font-medium transition-all ${
+                                  orderType === OrderType.LIMIT 
+                                  ? 'bg-blue-600 text-white shadow-lg' 
+                                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                              }`}
+                          >
+                              限价单
+                          </button>
+                          <button 
+                              onClick={() => setOrderType(OrderType.STOP_LOSS)}
+                              className={`py-2 px-3 rounded-lg text-xs font-medium transition-all ${
+                                  orderType === OrderType.STOP_LOSS 
+                                  ? 'bg-blue-600 text-white shadow-lg' 
+                                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                              }`}
+                          >
+                              止损单
+                          </button>
+                          <button 
+                              onClick={() => setOrderType(OrderType.STOP_PROFIT)}
+                              className={`py-2 px-3 rounded-lg text-xs font-medium transition-all ${
+                                  orderType === OrderType.STOP_PROFIT 
+                                  ? 'bg-blue-600 text-white shadow-lg' 
+                                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                              }`}
+                          >
+                              止盈单
+                          </button>
+                          <button 
+                              onClick={() => setOrderType(OrderType.TRAILING_STOP)}
+                              className={`py-2 px-3 rounded-lg text-xs font-medium transition-all ${
+                                  orderType === OrderType.TRAILING_STOP 
+                                  ? 'bg-blue-600 text-white shadow-lg' 
+                                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                              }`}
+                          >
+                              追踪止损
+                          </button>
+                          <button 
+                              onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
+                              className={`py-2 px-3 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1 ${
+                                  showAdvancedSettings 
+                                  ? 'bg-purple-600 text-white shadow-lg' 
+                                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                              }`}
+                          >
+                              <span className="material-icons text-xs">settings</span>
+                              高级
+                          </button>
                       </div>
                   </div>
+
+                  {(orderType === OrderType.LIMIT || orderType === OrderType.STOP_LOSS || orderType === OrderType.STOP_PROFIT) && (
+                      <div className="flex items-center justify-between">
+                          <span className="text-gray-500 text-xs">
+                              {orderType === OrderType.LIMIT ? '限价' : '触发价'}
+                          </span>
+                          <div className="flex items-center gap-3">
+                              <button onClick={()=>setTradePrice(Number((tradePrice-0.1).toFixed(2)))} className="w-10 h-10 bg-gray-800 rounded text-xl">-</button>
+                              <span className="text-2xl font-mono font-bold w-24 text-center">{tradePrice.toFixed(2)}</span>
+                              <button onClick={()=>setTradePrice(Number((tradePrice+0.1).toFixed(2)))} className="w-10 h-10 bg-gray-800 rounded text-xl">+</button>
+                          </div>
+                      </div>
+                  )}
+
+                  {orderType === OrderType.MARKET && (
+                      <div className="flex items-center justify-between bg-blue-900/20 border border-blue-500/30 px-3 py-2 rounded">
+                          <span className="text-blue-400 text-xs">市价单</span>
+                          <span className="text-blue-300 text-xs">以最优价格立即成交</span>
+                      </div>
+                  )}
+
+                  {(orderType === OrderType.STOP_LOSS || orderType === OrderType.STOP_PROFIT) && (
+                      <div className="flex items-center justify-between">
+                          <span className="text-gray-500 text-xs">执行价</span>
+                          <div className="flex items-center gap-3">
+                              <button onClick={()=>setStopPrice(Number((stopPrice-0.1).toFixed(2)))} className="w-10 h-10 bg-gray-800 rounded text-xl">-</button>
+                              <span className="text-xl font-mono font-bold w-24 text-center text-yellow-400">{stopPrice > 0 ? stopPrice.toFixed(2) : '市价'}</span>
+                              <button onClick={()=>setStopPrice(Number((stopPrice+0.1).toFixed(2)))} className="w-10 h-10 bg-gray-800 rounded text-xl">+</button>
+                          </div>
+                      </div>
+                  )}
+
+                  {orderType === OrderType.TRAILING_STOP && (
+                      <div className="flex items-center justify-between">
+                          <span className="text-gray-500 text-xs">回调比例 (%)</span>
+                          <div className="flex items-center gap-3">
+                              <button onClick={()=>setTrailingPercent(Math.max(1, trailingPercent-1))} className="w-10 h-10 bg-gray-800 rounded text-xl">-</button>
+                              <span className="text-2xl font-mono font-bold w-16 text-center text-purple-400">{trailingPercent}%</span>
+                              <button onClick={()=>setTrailingPercent(Math.min(20, trailingPercent+1))} className="w-10 h-10 bg-gray-800 rounded text-xl">+</button>
+                          </div>
+                      </div>
+                  )}
+
+                  {showAdvancedSettings && (
+                      <div className="bg-gray-900/50 border border-gray-700 rounded-xl p-4 space-y-3">
+                          <div className="text-xs text-gray-400 mb-2 flex items-center gap-1">
+                              <span className="material-icons text-xs">info</span>
+                              高级设置
+                          </div>
+                          <div className="flex justify-between items-center">
+                              <span className="text-gray-500 text-xs"> iceberg 大单拆分</span>
+                              <div className="flex items-center gap-2">
+                                  <button onClick={()=>setIcebergSize(Math.max(0, icebergSize-1000))} className="w-8 h-8 bg-gray-800 rounded text-sm">-</button>
+                                  <span className="text-sm font-mono w-20 text-center">{icebergSize > 0 ? icebergSize : '关闭'}</span>
+                                  <button onClick={()=>setIcebergSize(Math.min(tradeAmount, icebergSize+1000))} className="w-8 h-8 bg-gray-800 rounded text-sm">+</button>
+                              </div>
+                          </div>
+                          <div className="flex justify-between items-center">
+                              <span className="text-gray-500 text-xs"> 订单有效期</span>
+                              <select className="bg-gray-800 text-white text-xs py-1 px-2 rounded border border-gray-700">
+                                  <option value="0">当日有效</option>
+                                  <option value="1">1天</option>
+                                  <option value="3">3天</option>
+                                  <option value="7">7天</option>
+                              </select>
+                          </div>
+                      </div>
+                  )}
+
                   <div className="flex items-center justify-between">
                       <span className="text-gray-500 text-xs">数量</span>
                       <div className="flex items-center gap-3">
@@ -892,7 +1094,7 @@ const MobileInterface: React.FC = () => {
                 disabled={isOrdering || (isBuy && !canAfford)}
                 className={`w-full py-4 rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-all flex justify-center items-center gap-2 ${tradeAction==='buy'?'bg-red-600 text-white disabled:bg-red-900/50 disabled:text-red-300':'bg-green-600 text-white disabled:bg-green-900/50'}`}
               >
-                  {isOrdering ? <><span className="material-icons animate-spin">sync</span><span>提交中...</span></> : <><span>确认{tradeAction === 'buy' ? '买入' : '卖出'}</span></>}
+                  {isOrdering ? <><span className="material-icons animate-spin">sync</span><span>提交中...</span></> : <><span>确认{tradeAction === 'buy' ? '买入' : '卖出'}</span><span className="text-xs opacity-70">({orderType})</span></>}
               </button>
            </div>
          </div>

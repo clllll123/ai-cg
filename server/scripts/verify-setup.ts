@@ -1,11 +1,12 @@
 import axios from 'axios';
 
-const BASE_URL = 'http://localhost:3001/api';
+const PORT = process.env.PORT || 3001;
+const BASE_URL = `http://localhost:${PORT}/api`;
 
 async function verifySetup() {
   try {
     console.log('1. Testing Health Check...');
-    const health = await axios.get('http://localhost:3001/health');
+    const health = await axios.get(`http://localhost:${PORT}/health`);
     console.log('✅ Health Check Passed:', health.data);
 
     console.log('\n2. Testing Registration...');

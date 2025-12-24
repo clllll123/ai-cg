@@ -1,9 +1,31 @@
 import { Request, Response } from 'express';
+import { z } from 'zod';
 import { getAIService } from '../services/aiService';
+
+// 验证模式
+const generateNewsSchema = z.object({
+  phase: z.string().min(1, '阶段不能为空'),
+  stockSummary: z.string().min(1, '股票摘要不能为空')
+});
+
+const generateReportSchema = z.object({
+  context: z.string().min(1, '上下文不能为空'),
+  userId: z.string().min(1, '用户ID不能为空'),
+  gameData: z.object({
+    finalAssets: z.number().min(0, '最终资产不能为负数'),
+    rank: z.number().min(1, '排名必须大于0'),
+    trades: z.number().min(0, '交易次数不能为负数').optional(),
+    winRate: z.number().min(0).max(1, '胜率必须在0-1之间').optional()
+  }),
+  analysisType: z.enum(['performance', 'strategy', 'risk'], {
+    errorMap: () => ({ message: '分析类型必须是 performance、strategy 或 risk' })
+  })
+});
 
 export const generateNews = async (req: Request, res: Response) => {
   try {
-    const { phase, stockSummary } = req.body;
+    const validatedData = generateNewsSchema.parse(req.body);
+    const { phase, stockSummary } = validatedData;
     const aiService = getAIService();
     
     const systemPrompt = `你是一个即时股市模拟游戏的后台 AI。请生成 1 到 2 条**前瞻性**或**情绪化**的市场快讯，用于制造紧张氛围。
@@ -52,7 +74,6 @@ JSON 格式要求:
     try {
       newsData = JSON.parse(content);
     } catch (e) {
-      console.error('Failed to parse AI response:', content);
       // Fallback
       newsData = {
         newsItems: [{
@@ -69,14 +90,23 @@ JSON 格式要求:
 
     res.json(newsData);
   } catch (error: any) {
-    console.error('AI Generation Error:', error);
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ 
+        error: '请求参数验证失败', 
+        details: error.errors.map(err => ({
+          field: err.path.join('.'),
+          message: err.message
+        }))
+      });
+    }
     res.status(500).json({ error: '生成新闻失败，请稍后重试' });
   }
 };
 
 export const generateReport = async (req: Request, res: Response) => {
   try {
-    const { context } = req.body;
+    const validatedData = generateReportSchema.parse(req.body);
+    const { context } = validatedData;
     const aiService = getAIService();
     
     const systemPrompt = `你是一个专业的财经电视分析师。上午的交易刚刚结束。请撰写一份"午间股评"。
@@ -117,6 +147,15 @@ JSON 格式要求:
     
     res.json(reportData);
   } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ 
+        error: '请求参数验证失败', 
+        details: error.errors.map(err => ({
+          field: err.path.join('.'),
+          message: err.message
+        }))
+      });
+    }
     console.error('AI Report Generation Error:', error);
     res.status(500).json({ error: '生成报告失败' });
   }

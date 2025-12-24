@@ -10,6 +10,8 @@ import aiRoutes from './routes/aiRoutes';
 import adminRoutes from './routes/adminRoutes';
 import eventRoutes from './routes/eventRoutes';
 import gameRoutes from './routes/gameRoutes';
+import gamePlazaRoutes from './routes/gamePlazaRoutes';
+import GamePlazaWebSocketService from './services/gamePlazaWebSocketService';
 
 // Load environment variables
 dotenv.config();
@@ -37,6 +39,7 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/game', gameRoutes);
+app.use('/api/game-plaza', gamePlazaRoutes);
 
 // Basic health check
 app.get('/health', (req, res) => {
@@ -55,6 +58,9 @@ io.on('connection', (socket) => {
     console.log('User disconnected:', socket.id);
   });
 });
+
+// 初始化游戏广场WebSocket服务
+const gamePlazaWebSocketService = new GamePlazaWebSocketService(io);
 
 // Start server
 httpServer.listen(PORT, () => {

@@ -1,41 +1,45 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useGame } from '../context/GameContext';
-import { useUser } from '../context/UserContext'; // Import UserContext
+import { useUser } from '../context/UserContext';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { GamePhase } from '../types';
 
 const PlayerLogin: React.FC = () => {
   const { joinGame, phase, isMqttConnected } = useGame();
-  
-  // Try to get user from UserContext
-  let user = null;
-  try {
-      // We wrap this in a try because LegacyGame might be used outside UserContext provider in some edge cases (though current App structure prevents this)
-      const userContext = useUser();
-      user = userContext.user;
-  } catch(e) {
-      // Fallback if not inside UserProvider
-  }
+  const { user, isAuthenticated, isLoading: userLoading } = useUser();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  const [name, setName] = useState(user ? (user.nickname || user.username) : ''); // Auto-fill with nickname
+  const [name, setName] = useState('');
   const [code, setCode] = useState('');
-  
-  // Effect to sync name if user loads late
-  useEffect(() => {
-      if (user && !name) setName(user.nickname || user.username);
-  }, [user]);
   const [error, setError] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
 
   useEffect(() => {
-      const params = new URLSearchParams(window.location.search);
-      const urlCode = params.get('code');
-      if (urlCode && urlCode.length === 4) {
-          setCode(urlCode);
+    if (!userLoading && !isAuthenticated) {
+      const urlCode = searchParams.get('code');
+      if (urlCode) {
+        navigate(`/?redirect=register&code=${urlCode}`, { replace: true });
+      } else {
+        navigate('/?redirect=register', { replace: true });
       }
-  }, []);
+      return;
+    }
 
-  const handleJoin = async () => {
+    if (user) {
+      setName(user.nickname || user.username);
+    }
+  }, [user, isAuthenticated, userLoading, navigate, searchParams]);
+
+  useEffect(() => {
+    const urlCode = searchParams.get('code');
+    if (urlCode && urlCode.length === 4) {
+      setCode(urlCode);
+    }
+  }, [searchParams]);
+
+  const handleJoin = useCallback(async () => {
     setError('');
     if (name.trim() && code.trim()) {
       setIsConnecting(true);
@@ -51,7 +55,16 @@ const PlayerLogin: React.FC = () => {
           setIsConnecting(false);
       }
     }
-  };
+  }, [name, code, joinGame]);
+
+  if (userLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full bg-gray-900 text-white p-8">
+        <div className="w-12 h-12 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <h2 className="text-sm font-bold text-blue-400">正在验证身份...</h2>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center justify-center h-full bg-gray-900 text-white p-8 relative overflow-hidden">

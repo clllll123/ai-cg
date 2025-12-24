@@ -1,8 +1,14 @@
 
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { GamePhase, Stock, Player, MarketNews, GameSettings, NewsFrequency, Sector, Notification, BroadcastEvent, BotLevel, PendingOrder, StockTransaction, TradingSession, MidDayReport, LoanProvider, Danmu, NetworkMessage, NetworkAction, StockTick, NewsType, OrderBookItem } from '../types';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { GamePhase, Stock, Player, MarketNews, GameSettings, NewsFrequency, Sector, Notification, BroadcastEvent, BotLevel, PendingOrder, StockTransaction, TradingSession, MidDayReport, LoanProvider, Danmu, NetworkMessage, NetworkAction, StockTick, NewsType, OrderBookItem, OrderType } from '../types';
+import { StartupCompany, BusinessDecision, DecisionResult, Milestone, CompanyAchievement, GrowthProgress, InvestmentRequest, InvestmentCompetition, InvestmentCooperation, InvestmentAlliance, InvestmentEvent, InvestmentLeaderboard, PlayerInvestmentProfile, InvestmentMarketplace, CompetitionType, CooperationType } from '../types/startup';
 import { generateMarketNews, generateMidDayReport } from '../services/geminiService';
 import { generateStocks } from '../services/stockGenerator';
+import { EnhancedPriceCalculationService } from '../services/enhancedPriceCalculationService';
+import { MacroEventService } from '../services/macroEventService';
+import { CompanyOperationService } from '../services/companyOperationService';
+import { StartupGenerator } from '../services/startupGenerator';
+import { InvestmentService } from '../services/investmentService';
 
 declare var mqtt: any; // Global MQTT definition
 
@@ -24,14 +30,27 @@ interface GameContextType {
   broadcastEvent: BroadcastEvent | null;
   marketSentiment: 'bull' | 'bear' | 'neutral'; 
   midDayReport: MidDayReport | null;
-  dailyReport: MidDayReport | null; // NEW: End of day report
-  danmuList: Danmu[]; 
+  dailyReport: MidDayReport | null;
+  danmuList: Danmu[];
+  startupCompanies: StartupCompany[];
+  selectedCompany: StartupCompany | null;
+  availableDecisions: BusinessDecision[];
+  decisionResults: DecisionResult[];
+  companyGrowthProgress: GrowthProgress | null;
+  newlyAchievedMilestones: Milestone[];
+  newlyUnlockedAchievements: CompanyAchievement[];
+  
+  // Investment Competition & Cooperation State
+  investmentMarketplace: InvestmentMarketplace;
+  selectedPlayerProfile: PlayerInvestmentProfile | null;
+  investmentEvents: InvestmentEvent[];
   
   // Network State
   isHostOnline: boolean;
   isMqttConnected: boolean; 
   lastSyncTime: number; 
-  isDataSynced: boolean; 
+  isDataSynced: boolean;
+  mqttConnectionError: string | null; 
   
   // Actions
   updateSettings: (newSettings: Partial<GameSettings>) => void;
@@ -41,7 +60,7 @@ interface GameContextType {
   startGame: () => void;
   stopGame: () => void;
   resetGame: () => void;
-  placeOrder: (stockId: string, price: number, amount: number, isBuy: boolean) => void;
+  placeOrder: (stockId: string, price: number, amount: number, isBuy: boolean, orderType?: OrderType, stopPrice?: number, trailingPercent?: number, icebergSize?: number) => void;
   cancelOrder: (orderId: string) => void;
   kickPlayer: (playerId: string) => void;
   dismissNotification: (id: string) => void; 
@@ -50,7 +69,31 @@ interface GameContextType {
   repayDebt: (amount: number) => void;
   sendDanmu: (content: string, type: 'text' | 'emoji' | 'rich') => void;
   distributeDividends: (stockId: string, amountPerShare: number) => void; 
-  requestDataSync: () => void; 
+  requestDataSync: () => void;
+  selectCompany: (company: StartupCompany | null) => void;
+  executeCompanyDecision: (decisionId: string) => void;
+  generateStartupCompanies: () => void;
+  updateCompanyDailyProgress: (companyId: string) => void;
+  checkCompanyMilestones: (companyId: string) => void;
+  calculateCompanyGrowthProgress: (companyId: string) => void;
+  clearNewAchievements: () => void;
+  
+  // Investment Competition & Cooperation Actions
+  createInvestmentRequest: (companyId: string, investmentAmount: number, equityRequested: number) => InvestmentRequest;
+  approveInvestmentRequest: (requestId: string) => { success: boolean; message: string };
+  createInvestmentCompetition: (companyId: string, type: CompetitionType, targetAmount: number, duration: number) => InvestmentCompetition;
+  joinCompetition: (competitionId: string, investmentAmount: number) => { success: boolean; message: string; competition?: InvestmentCompetition };
+  resolveCompetition: (competitionId: string) => { winner?: { playerId: string; playerName: string; investmentAmount: number; equityShare: number }; message: string };
+  createInvestmentCooperation: (name: string, companyId: string, type: CooperationType, targetAmount: number, minParticipants: number, maxParticipants: number, duration: number) => InvestmentCooperation;
+  joinCooperation: (cooperationId: string, investmentAmount: number, contribution: string) => { success: boolean; message: string; cooperation?: InvestmentCooperation };
+  finalizeCooperation: (cooperationId: string) => { success: boolean; message: string; participants?: Array<{ playerId: string; playerName: string; investmentAmount: number; equityShare: number }> };
+  createAlliance: (name: string, targetCompanies: string[], allianceGoals: string[]) => InvestmentAlliance;
+  joinAlliance: (allianceId: string) => { success: boolean; message: string; alliance?: InvestmentAlliance };
+  contributeToAlliance: (allianceId: string, contributionType: 'capital' | 'influence' | 'knowledge' | 'network', amount: number) => { success: boolean; message: string; alliance?: InvestmentAlliance };
+  getPlayerInvestmentProfile: (playerId: string) => PlayerInvestmentProfile;
+  selectPlayerProfile: (profile: PlayerInvestmentProfile | null) => void;
+  updateInvestmentLeaderboard: () => void;
+  refreshInvestmentMarketplace: () => void;
 }
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
@@ -73,6 +116,9 @@ const DEFAULT_SETTINGS: GameSettings = {
   // CHANGED: Increased marketDepth to 100,000 to significantly reduce V-shape volatility and make charts smoother
   marketDepth: 100000, 
   playerImpactMultiplier: 1.0, 
+  transactionFeeRate: 0.0015, // 交易手续费率 0.15%
+  stampTaxRate: 0.001, // 印花税率 0.1%（卖出时收取）
+  maxDailyFluctuation: 0.30, // 单日最大涨跌幅 30%
   loanProviders: [
       { id: 'bank', name: '正规银行', rate: 0.02, leverage: 2, color: 'blue', desc: '低息稳健 (1:2)' },
       { id: 'underground', name: '地下钱庄', rate: 0.15, leverage: 3, color: 'purple', desc: '快速放款 (1:3)' },
@@ -154,13 +200,40 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [broadcastEvent, setBroadcastEvent] = useState<BroadcastEvent | null>(null);
   const [danmuList, setDanmuList] = useState<Danmu[]>([]);
   
+  const [startupCompanies, setStartupCompanies] = useState<StartupCompany[]>([]);
+  const [selectedCompany, setSelectedCompany] = useState<StartupCompany | null>(null);
+  const [availableDecisions, setAvailableDecisions] = useState<BusinessDecision[]>([]);
+  const [decisionResults, setDecisionResults] = useState<DecisionResult[]>([]);
+  const [companyGrowthProgress, setCompanyGrowthProgress] = useState<GrowthProgress | null>(null);
+  const [newlyAchievedMilestones, setNewlyAchievedMilestones] = useState<Milestone[]>([]);
+  const [newlyUnlockedAchievements, setNewlyUnlockedAchievements] = useState<CompanyAchievement[]>([]);
+  
+  // Investment Competition & Cooperation State
+  const [investmentMarketplace, setInvestmentMarketplace] = useState<InvestmentMarketplace>({
+    availableOpportunities: [],
+    activeCompetitions: [],
+    activeCooperations: [],
+    activeAlliances: [],
+    leaderboard: {
+      period: 'all_time',
+      rankings: [],
+      lastUpdated: Date.now()
+    },
+    marketTrends: []
+  });
+  const [selectedPlayerProfile, setSelectedPlayerProfile] = useState<PlayerInvestmentProfile | null>(null);
+  const [investmentEvents, setInvestmentEvents] = useState<InvestmentEvent[]>([]);
+  
   // Network Status
   const [isHostOnline, setIsHostOnline] = useState(false);
   const [isMqttConnected, setIsMqttConnected] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState(0);
+  const [mqttConnectionError, setMqttConnectionError] = useState<string | null>(null);
+  const [mqttRetryCount, setMqttRetryCount] = useState(0);
 
   // MQTT Client Ref
   const mqttClientRef = useRef<any>(null);
+  const mqttRetryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Track Index at start of Afternoon for betting resolution
   const afternoonStartIndexRef = useRef<number>(INITIAL_INDEX);
@@ -199,7 +272,43 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const marketCycleRef = useRef({ phaseDuration: 0, currentTrend: 0 });
   const isGeneratingNewsRef = useRef(false);
 
+  const enhancedPriceCalculationServiceRef = useRef<EnhancedPriceCalculationService | null>(null);
+  const macroEventServiceRef = useRef<MacroEventService | null>(null);
+  const companyOperationServiceRef = useRef<CompanyOperationService | null>(null);
+  const startupGeneratorRef = useRef<StartupGenerator | null>(null);
+  const investmentServiceRef = useRef<InvestmentService | null>(null);
+  useEffect(() => {
+    if (isHost) {
+      enhancedPriceCalculationServiceRef.current = new EnhancedPriceCalculationService();
+      macroEventServiceRef.current = new MacroEventService();
+      companyOperationServiceRef.current = new CompanyOperationService();
+      startupGeneratorRef.current = new StartupGenerator();
+      investmentServiceRef.current = new InvestmentService();
+    }
+  }, [isHost]);
+
   // --- MQTT LOGIC ---
+  const MAX_RETRY_ATTEMPTS = 5;
+  const RETRY_DELAY_BASE = 2000;
+  const RETRY_DELAY_MULTIPLIER = 2;
+
+  const attemptMqttReconnect = useCallback(() => {
+    if (mqttRetryCount >= MAX_RETRY_ATTEMPTS) {
+      setMqttConnectionError('连接失败，请检查网络后刷新页面重试');
+      return;
+    }
+
+    const delay = RETRY_DELAY_BASE * Math.pow(RETRY_DELAY_MULTIPLIER, mqttRetryCount);
+    setMqttConnectionError(`连接断开，正在尝试重连... (${mqttRetryCount + 1}/${MAX_RETRY_ATTEMPTS})`);
+
+    mqttRetryTimeoutRef.current = setTimeout(() => {
+      setMqttRetryCount(prev => prev + 1);
+      if (mqttClientRef.current && !mqttClientRef.current.connected) {
+        mqttClientRef.current.reconnect();
+      }
+    }, delay);
+  }, [mqttRetryCount]);
+
   useEffect(() => {
       if (mqttClientRef.current) return; 
       if (typeof mqtt === 'undefined') return;
@@ -212,6 +321,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       client.on('connect', () => {
           setIsMqttConnected(true);
+          setMqttConnectionError(null);
+          setMqttRetryCount(0);
+          if (mqttRetryTimeoutRef.current) {
+            clearTimeout(mqttRetryTimeoutRef.current);
+            mqttRetryTimeoutRef.current = null;
+          }
           const code = currentRoomCodeRef.current;
           if (isHost) {
               const actionTopic = `${TOPIC_PREFIX}/${code}/action`;
@@ -220,11 +335,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setIsHostOnline(true);
           } else {
               if (code && activePlayerId) {
-                  // Re-subscribe if reloading page
-                  const syncTopic = `${TOPIC_PREFIX}/${code}/sync`; // Ticks
-                  const broadcastTopic = `${TOPIC_PREFIX}/${code}/broadcast`; // Game Start
-                  const privateTopic = `${TOPIC_PREFIX}/${code}/p/${activePlayerId}`; // Private Setup
-                  const lobbyBroadcastTopic = `${TOPIC_PREFIX}/${code}/broadcast_setup`; // Global Setup Updates
+                  const syncTopic = `${TOPIC_PREFIX}/${code}/sync`;
+                  const broadcastTopic = `${TOPIC_PREFIX}/${code}/broadcast`;
+                  const privateTopic = `${TOPIC_PREFIX}/${code}/p/${activePlayerId}`;
+                  const lobbyBroadcastTopic = `${TOPIC_PREFIX}/${code}/broadcast_setup`;
                   client.subscribe([syncTopic, broadcastTopic, privateTopic, lobbyBroadcastTopic]);
               }
           }
@@ -237,10 +351,29 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           } catch (e) { }
       });
 
-      client.on('offline', () => { setIsMqttConnected(false); setIsHostOnline(false); });
-      client.on('reconnect', () => { setIsMqttConnected(false); });
+      client.on('offline', () => { 
+          setIsMqttConnected(false); 
+          setIsHostOnline(false);
+          attemptMqttReconnect();
+      });
       
-      return () => { };
+      client.on('error', (err: any) => {
+          console.error('MQTT Error:', err);
+          setMqttConnectionError(`连接错误: ${err.message || '未知错误'}`);
+          setIsMqttConnected(false);
+          setIsHostOnline(false);
+      });
+
+      client.on('reconnect', () => { 
+          setIsMqttConnected(false); 
+          setMqttConnectionError('正在重新连接...');
+      });
+      
+      return () => { 
+          if (mqttRetryTimeoutRef.current) {
+            clearTimeout(mqttRetryTimeoutRef.current);
+          }
+      };
   }, []); 
 
   // --- 2. HOST SUBSCRIPTIONS ---
@@ -275,7 +408,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           } 
           else if (msg.type === 'ACTION') {
               const action = msg.payload as NetworkAction;
-              if (action.actionType === 'PLACE_ORDER') handleHostPlaceOrder(action.playerId, action.data.stockId, action.data.price, action.data.amount, action.data.isBuy);
+              if (action.actionType === 'PLACE_ORDER') handleHostPlaceOrder(action.playerId, action.data.stockId, action.data.price, action.data.amount, action.data.isBuy, action.data.orderType, action.data.stopPrice, action.data.trailingPercent, action.data.icebergSize);
               else if (action.actionType === 'CANCEL_ORDER') handleHostCancelOrder(action.playerId, action.data.orderId);
               else if (action.actionType === 'PLACE_BET') handleHostPlaceBet(action.playerId, action.data.prediction);
               else if (action.actionType === 'BORROW') handleHostBorrow(action.playerId, action.data.amount, action.data.providerName, action.data.rate);
@@ -338,12 +471,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
                  setStocks(prevStocks => {
                      const stockMap = new Map<string, Stock>();
                      prevStocks.forEach(s => stockMap.set(s.id, s));
+                     const updatedStockIds: string[] = [];
                      data.tks.forEach((tick: StockTick) => {
                          const s = stockMap.get(tick.i);
                          if (s) {
                              const newHistoryPoint = { time: Date.now(), price: tick.p, volume: tick.v };
                              const newHistory = [...s.history, newHistoryPoint].slice(-30);
-                             // Update stock with price, vol, AND Order Book if present
                              stockMap.set(tick.i, { 
                                  ...s, 
                                  price: tick.p, 
@@ -352,8 +485,19 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
                                  buyBook: tick.b,
                                  sellBook: tick.a
                              });
+                             updatedStockIds.push(tick.i);
                          }
                      });
+                     if (isHost && updatedStockIds.length > 0) {
+                         setTimeout(() => {
+                             updatedStockIds.forEach(stockId => {
+                                 const stock = stocksRef.current.find(s => s.id === stockId);
+                                 if (stock) {
+                                     checkPendingOrders(stockId, stock.price);
+                                 }
+                             });
+                         }, 0);
+                     }
                      return Array.from(stockMap.values());
                  });
               }
@@ -505,6 +649,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const startGame = () => {
     setPhase(GamePhase.OPENING); setCurrentDay(1); setTimeLeft(settings.openingDuration); 
     setMarketIndex(INITIAL_INDEX); setMarketIndexHistory([]); setMidDayReport(null); setDailyReport(null);
+    
+    if (isHost) {
+        generateStartupCompanies();
+        refreshInvestmentMarketplace();
+    }
+    
     if (isHost && mqttClientRef.current) {
         broadcastGlobalSetup();
         setTimeout(() => { const startMsg: NetworkMessage = { type: 'GAME_START', payload: {} }; mqttClientRef.current.publish(`${TOPIC_PREFIX}/${roomCode}/broadcast`, JSON.stringify(startMsg)); }, 500);
@@ -547,45 +697,151 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // --- HOST ACTIONS ---
-  const handleHostPlaceOrder = (playerId: string, stockId: string, price: number, amount: number, isBuy: boolean) => {
+  const handleHostPlaceOrder = (playerId: string, stockId: string, price: number, amount: number, isBuy: boolean, orderType?: OrderType, stopPrice?: number, trailingPercent?: number, icebergSize?: number) => {
       if (phaseRef.current === GamePhase.OPENING || tradingSessionRef.current === TradingSession.BREAK || tradingSessionRef.current === TradingSession.DAY_END) return; 
       const stock = stocksRef.current.find(s => s.id === stockId); 
       if (!stock) return;
+
+      const validateOrder = (p: Player, shouldCheckCash: boolean, shouldCheckPortfolio: boolean) => {
+          const rawCost = price * amount; 
+          const fee = rawCost * TRANSACTION_FEE_RATE; 
+          const totalCost = rawCost + fee;
+          if (shouldCheckCash && p.cash < totalCost) return { valid: false, reason: 'insufficient_cash' };
+          if (shouldCheckPortfolio && (p.portfolio[stockId] || 0) < amount) return { valid: false, reason: 'insufficient_shares' };
+          return { valid: true, totalCost };
+      };
+
+      const executeTrade = (p: Player, execPrice: number, execAmount: number, execIsBuy: boolean) => {
+          let updatedPlayer = { ...p };
+          if (execIsBuy) {
+              const execCost = execPrice * execAmount * (1 + TRANSACTION_FEE_RATE);
+              updatedPlayer.cash -= execCost;
+              const currentQty = updatedPlayer.portfolio[stockId] || 0;
+              const currentAvgCost = updatedPlayer.costBasis[stockId] || 0;
+              const totalVal = (currentQty * currentAvgCost) + (execAmount * execPrice);
+              updatedPlayer.costBasis[stockId] = totalVal / (currentQty + execAmount);
+              updatedPlayer.portfolio[stockId] = currentQty + execAmount;
+              updatedPlayer.lastBuyTimestamp = Date.now();
+          } else {
+              const execGain = execPrice * execAmount * (1 - TRANSACTION_FEE_RATE);
+              updatedPlayer.cash += execGain;
+              updatedPlayer.portfolio[stockId] = (updatedPlayer.portfolio[stockId] || 0) - execAmount;
+              if (updatedPlayer.portfolio[stockId] <= 0) { delete updatedPlayer.costBasis[stockId]; }
+          }
+          const tx: StockTransaction = { id: `tx_ply_${Date.now()}_${Math.random()}`, time: Date.now(), price: execPrice, volume: execAmount, type: execIsBuy ? 'buy' : 'sell', playerName: stock.name };
+          updatedPlayer.tradeHistory = [tx, ...updatedPlayer.tradeHistory];
+          updatedPlayer.stats = { ...updatedPlayer.stats, tradeCount: updatedPlayer.stats.tradeCount + 1 };
+          return updatedPlayer;
+      };
+
+      const shouldCheckCash = isBuy && orderType !== OrderType.MARKET;
+      const shouldCheckPortfolio = !isBuy && orderType !== OrderType.MARKET;
+
       setPlayers(prev => {
           const playerIndex = prev.findIndex(p => p.id === playerId);
           if (playerIndex === -1) return prev;
           const player = prev[playerIndex];
-          const rawCost = price * amount; 
-          const fee = rawCost * TRANSACTION_FEE_RATE; 
-          const totalCost = rawCost + fee;
-          if (isBuy && player.cash < totalCost) return prev; 
-          if (!isBuy && (player.portfolio[stockId] || 0) < amount) return prev; 
-          const canExecute = isBuy ? (stock.price <= price) : (stock.price >= price);
+
+          if (orderType === OrderType.MARKET) {
+              const currentMarketPrice = stock.price;
+              const validation = validateOrder(player, true, true);
+              if (!validation.valid) return prev;
+              const updatedPlayer = executeTrade(player, currentMarketPrice, amount, isBuy);
+              const newPlayers = [...prev];
+              newPlayers[playerIndex] = updatedPlayer;
+              setTimeout(() => pushPlayerUpdate(updatedPlayer), 0);
+              return newPlayers;
+          }
+
+          const validation = validateOrder(player, shouldCheckCash, shouldCheckPortfolio);
+          if (!validation.valid) return prev;
+          const { totalCost } = validation;
+
+          let canExecute = false;
+          let executionPrice = price;
+
+          switch (orderType) {
+              case OrderType.LIMIT:
+                  canExecute = isBuy ? (stock.price <= price) : (stock.price >= price);
+                  executionPrice = price;
+                  break;
+              case OrderType.STOP_LOSS:
+                  if (!isBuy && stopPrice !== undefined) {
+                      canExecute = stock.price <= stopPrice;
+                      executionPrice = Math.min(stock.price, stopPrice);
+                  }
+                  break;
+              case OrderType.STOP_PROFIT:
+                  if (!isBuy && stopPrice !== undefined) {
+                      canExecute = stock.price >= stopPrice;
+                      executionPrice = Math.max(stock.price, stopPrice);
+                  }
+                  break;
+              case OrderType.TRAILING_STOP:
+                  if (!isBuy && trailingPercent !== undefined && stopPrice !== undefined) {
+                      const triggerPrice = stopPrice * (1 - trailingPercent / 100);
+                      canExecute = stock.price <= triggerPrice;
+                      executionPrice = Math.min(stock.price, triggerPrice);
+                  }
+                  break;
+              default:
+                  canExecute = isBuy ? (stock.price <= price) : (stock.price >= price);
+                  executionPrice = price;
+          }
+
           let updatedPlayer = { ...player };
           if (canExecute) {
-              if (isBuy) {
-                  const execCost = price * amount * (1 + TRANSACTION_FEE_RATE);
-                  updatedPlayer.cash -= execCost;
-                  const currentQty = updatedPlayer.portfolio[stockId] || 0;
-                  const currentAvgCost = updatedPlayer.costBasis[stockId] || 0;
-                  const totalVal = (currentQty * currentAvgCost) + (amount * price);
-                  updatedPlayer.costBasis[stockId] = totalVal / (currentQty + amount);
-                  updatedPlayer.portfolio[stockId] = currentQty + amount;
-                  updatedPlayer.lastBuyTimestamp = Date.now();
+              if (icebergSize && icebergSize > 0 && icebergSize < amount) {
+                  const firstChunk = icebergSize;
+                  const remaining = amount - firstChunk;
+                  updatedPlayer = executeTrade(updatedPlayer, executionPrice, firstChunk, isBuy);
+                  if (remaining > 0) {
+                      const newOrder: PendingOrder = {
+                          id: `ord_${Date.now()}_${Math.random()}`,
+                          stockId,
+                          stockName: stock.name,
+                          type: isBuy ? 'buy' : 'sell',
+                          price,
+                          amount: remaining,
+                          timestamp: Date.now(),
+                          orderType,
+                          stopPrice,
+                          trailingPercent,
+                          originalAmount: amount
+                      };
+                      updatedPlayer.pendingOrders = [...updatedPlayer.pendingOrders, newOrder];
+                  }
               } else {
-                  const execGain = price * amount * (1 - TRANSACTION_FEE_RATE);
-                  updatedPlayer.cash += execGain;
-                  updatedPlayer.portfolio[stockId] = (updatedPlayer.portfolio[stockId] || 0) - amount;
-                  if (updatedPlayer.portfolio[stockId] <= 0) { delete updatedPlayer.costBasis[stockId]; }
+                  updatedPlayer = executeTrade(updatedPlayer, executionPrice, amount, isBuy);
               }
-              const tx: StockTransaction = { id: `tx_ply_${Date.now()}_${Math.random()}`, time: Date.now(), price: price, volume: amount, type: isBuy ? 'buy' : 'sell', playerName: stock.name };
-              updatedPlayer.tradeHistory = [tx, ...updatedPlayer.tradeHistory];
-              updatedPlayer.stats = { ...updatedPlayer.stats, tradeCount: updatedPlayer.stats.tradeCount + 1 };
           } else {
-              const newOrder: PendingOrder = { id: `ord_${Date.now()}_${Math.random()}`, stockId, stockName: stock.name, type: isBuy ? 'buy' : 'sell', price, amount, timestamp: Date.now() };
+              const newOrder: PendingOrder = {
+                  id: `ord_${Date.now()}_${Math.random()}`,
+                  stockId,
+                  stockName: stock.name,
+                  type: isBuy ? 'buy' : 'sell',
+                  price,
+                  amount,
+                  timestamp: Date.now(),
+                  orderType,
+                  stopPrice,
+                  trailingPercent,
+                  icebergSize
+              };
               if (isBuy) { updatedPlayer.cash -= totalCost; updatedPlayer.lastBuyTimestamp = Date.now(); } 
               else { updatedPlayer.portfolio[stockId] = (updatedPlayer.portfolio[stockId] || 0) - amount; }
               updatedPlayer.pendingOrders = [...updatedPlayer.pendingOrders, newOrder];
+              
+              setTimeout(() => {
+                  const orderTypeName = orderType || OrderType.LIMIT;
+                  const notification: Notification = {
+                      id: `ord_created_${Date.now()}`,
+                      message: `挂单已提交: ${stock.name} ${amount}股 @¥${price.toFixed(2)} (${orderTypeName})`,
+                      type: 'info'
+                  };
+                  setNotifications(prev => [...prev, notification]);
+                  setTimeout(() => setNotifications(prev => prev.filter(n => n.id !== notification.id)), 4000);
+              }, 100);
           }
           const newPlayers = [...prev];
           newPlayers[playerIndex] = updatedPlayer;
@@ -593,6 +849,152 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return newPlayers;
       });
   };
+
+  const checkPendingOrders = (stockId: string, currentPrice: number) => {
+      setPlayers(prev => {
+          let hasUpdates = false;
+          const updatedPlayers = prev.map(player => {
+              const executableOrders: PendingOrder[] = [];
+              const remainingOrders: PendingOrder[] = [];
+
+              player.pendingOrders.forEach(order => {
+                  if (order.stockId !== stockId) {
+                      remainingOrders.push(order);
+                      return;
+                  }
+
+                  let shouldExecute = false;
+                  let execPrice = order.price;
+
+                  switch (order.orderType) {
+                      case OrderType.LIMIT:
+                          shouldExecute = order.type === 'buy' 
+                              ? currentPrice <= order.price 
+                              : currentPrice >= order.price;
+                          execPrice = order.price;
+                          break;
+                      case OrderType.STOP_LOSS:
+                          if (order.type === 'sell' && order.stopPrice !== undefined) {
+                              shouldExecute = currentPrice <= order.stopPrice;
+                              execPrice = Math.min(currentPrice, order.stopPrice);
+                          }
+                          break;
+                      case OrderType.STOP_PROFIT:
+                          if (order.type === 'sell' && order.stopPrice !== undefined) {
+                              shouldExecute = currentPrice >= order.stopPrice;
+                              execPrice = Math.max(currentPrice, order.stopPrice);
+                          }
+                          break;
+                      case OrderType.TRAILING_STOP:
+                          if (order.type === 'sell' && order.stopPrice !== undefined && order.trailingPercent !== undefined) {
+                              const triggerPrice = order.stopPrice * (1 - order.trailingPercent / 100);
+                              shouldExecute = currentPrice <= triggerPrice;
+                              execPrice = Math.min(currentPrice, triggerPrice);
+                          }
+                          break;
+                      default:
+                          shouldExecute = order.type === 'buy' 
+                              ? currentPrice <= order.price 
+                              : currentPrice >= order.price;
+                          execPrice = order.price;
+                  }
+
+                  if (shouldExecute) {
+                      executableOrders.push(order);
+                      hasUpdates = true;
+                  } else {
+                      remainingOrders.push(order);
+                  }
+              });
+
+              if (executableOrders.length === 0) {
+                  return player;
+              }
+
+              let updatedPlayer = { ...player, pendingOrders: remainingOrders };
+
+              executableOrders.forEach(order => {
+                  const totalCost = order.price * order.amount * (1 + TRANSACTION_FEE_RATE);
+                  const totalGain = order.price * order.amount * (1 - TRANSACTION_FEE_RATE);
+                  
+                  let execPrice = currentPrice;
+                  switch (order.orderType) {
+                      case OrderType.STOP_LOSS:
+                      case OrderType.STOP_PROFIT:
+                      case OrderType.TRAILING_STOP:
+                          if (order.type === 'sell' && order.stopPrice !== undefined) {
+                              execPrice = order.stopPrice;
+                          }
+                          break;
+                  }
+
+                  if (order.type === 'buy') {
+                      updatedPlayer.cash -= totalCost;
+                      const currentQty = updatedPlayer.portfolio[order.stockId] || 0;
+                      const currentAvgCost = updatedPlayer.costBasis[order.stockId] || 0;
+                      const totalVal = (currentQty * currentAvgCost) + (order.amount * execPrice);
+                      updatedPlayer.costBasis[order.stockId] = totalVal / (currentQty + order.amount);
+                      updatedPlayer.portfolio[order.stockId] = currentQty + order.amount;
+                      updatedPlayer.lastBuyTimestamp = Date.now();
+                  } else {
+                      updatedPlayer.cash += totalGain;
+                      updatedPlayer.portfolio[order.stockId] = (updatedPlayer.portfolio[order.stockId] || 0) - order.amount;
+                      if (updatedPlayer.portfolio[order.stockId] <= 0) {
+                          delete updatedPlayer.costBasis[order.stockId];
+                      }
+                  }
+
+                  const stock = stocksRef.current.find(s => s.id === order.stockId);
+                  const tx: StockTransaction = { 
+                      id: `tx_ply_${Date.now()}_${Math.random()}`, 
+                      time: Date.now(), 
+                      price: execPrice, 
+                      volume: order.amount, 
+                      type: 'buy', 
+                      playerName: order.stockName 
+                  };
+                  updatedPlayer.tradeHistory = [tx, ...updatedPlayer.tradeHistory];
+                  updatedPlayer.stats = { ...updatedPlayer.stats, tradeCount: updatedPlayer.stats.tradeCount + 1 };
+              });
+
+              return updatedPlayer;
+          });
+
+          if (hasUpdates) {
+              setTimeout(() => {
+                  updatedPlayers.forEach(p => {
+                      if (p.pendingOrders.length < prev.find(prevP => prevP.id === p.id)?.pendingOrders?.length) {
+                          pushPlayerUpdate(p);
+                      }
+                  });
+              }, 0);
+              
+              const executedCount = prev.reduce((count, player) => {
+                  const currentPlayer = updatedPlayers.find(p => p.id === player.id);
+                  if (currentPlayer) {
+                      return count + (player.pendingOrders.length - currentPlayer.pendingOrders.length);
+                  }
+                  return count;
+              }, 0);
+              
+              if (executedCount > 0) {
+                  setTimeout(() => {
+                      const stock = stocksRef.current.find(s => s.id === stockId);
+                      const stockName = stock?.name || '股票';
+                      const notification: Notification = {
+                          id: `ord_exec_${Date.now()}`,
+                          message: `订单已成交: ${stockName} ${executedCount}笔挂单已执行`,
+                          type: 'success'
+                      };
+                      setNotifications(prev => [...prev, notification]);
+                      setTimeout(() => setNotifications(prev => prev.filter(n => n.id !== notification.id)), 4000);
+                  }, 100);
+              }
+          }
+          return updatedPlayers;
+      });
+  };
+
   const handleHostCancelOrder = (playerId: string, orderId: string) => { setPlayers(prev => { const playerIndex = prev.findIndex(p => p.id === playerId); if (playerIndex === -1) return prev; const player = prev[playerIndex]; const order = player.pendingOrders.find(o => o.id === orderId); if (!order) return prev; let updatedPlayer = { ...player }; if (order.type === 'buy') { updatedPlayer.cash += (order.price * order.amount * (1 + TRANSACTION_FEE_RATE)); } else { updatedPlayer.portfolio[order.stockId] = (updatedPlayer.portfolio[order.stockId] || 0) + order.amount; } updatedPlayer.pendingOrders = updatedPlayer.pendingOrders.filter(o => o.id !== orderId); const newPlayers = [...prev]; newPlayers[playerIndex] = updatedPlayer; setTimeout(() => pushPlayerUpdate(updatedPlayer), 0); return newPlayers; }); };
   const handleHostPlaceBet = (playerId: string, prediction: 'BULL' | 'BEAR') => { setPlayers(prev => prev.map(p => { if (p.id === playerId) { const betAmt = Math.floor(p.cash * 0.10); if (betAmt < 1000) return p; return { ...p, cash: p.cash - betAmt, activeBet: prediction, betAmount: betAmt }; } return p; })); };
   const handleHostBorrow = (playerId: string, amount: number, providerName: string, rate: number) => { setPlayers(prev => prev.map(p => { if (p.id === playerId) { const debtIncrease = Math.floor(amount * (1 + rate)); return { ...p, cash: p.cash + amount, debt: p.debt + debtIncrease }; } return p; })); };
@@ -615,11 +1017,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: false, message: "网络连接未就绪，请稍后重试" };
   };
 
-  const placeOrder = (stockId: string, price: number, amount: number, isBuy: boolean) => {
+  const placeOrder = (stockId: string, price: number, amount: number, isBuy: boolean, orderType?: OrderType, stopPrice?: number, trailingPercent?: number, icebergSize?: number) => {
       if (!activePlayerId) return;
-      if (isHost) { handleHostPlaceOrder(activePlayerId, stockId, price, amount, isBuy); } 
+      if (isHost) { handleHostPlaceOrder(activePlayerId, stockId, price, amount, isBuy, orderType, stopPrice, trailingPercent, icebergSize); } 
       else if (mqttClientRef.current) {
-          const action: NetworkAction = { actionType: 'PLACE_ORDER', playerId: activePlayerId, data: { stockId, price, amount, isBuy } };
+          const action: NetworkAction = { actionType: 'PLACE_ORDER', playerId: activePlayerId, data: { stockId, price, amount, isBuy, orderType, stopPrice, trailingPercent, icebergSize } };
           const msg: NetworkMessage = { type: 'ACTION', payload: action };
           mqttClientRef.current.publish(`${TOPIC_PREFIX}/${roomCode}/action`, JSON.stringify(msg));
       }
@@ -675,6 +1077,485 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
   };
 
+  const selectCompany = (company: StartupCompany | null) => {
+      setSelectedCompany(company);
+      if (company && startupGeneratorRef.current) {
+          const decisions = startupGeneratorRef.current.getAvailableDecisions(company.stage, company);
+          setAvailableDecisions(decisions);
+          const progress = startupGeneratorRef.current.calculateGrowthProgress(company);
+          setCompanyGrowthProgress(progress);
+      } else {
+          setAvailableDecisions([]);
+          setCompanyGrowthProgress(null);
+      }
+  };
+
+  const executeCompanyDecision = (decisionId: string) => {
+      if (!selectedCompany || !companyOperationServiceRef.current) return;
+      const decision = availableDecisions.find(d => d.id === decisionId);
+      if (!decision) return;
+      const { updatedCompany, result } = companyOperationServiceRef.current.executeDecision(selectedCompany, decision);
+      setStartupCompanies(prev => prev.map(c => c.id === updatedCompany.id ? updatedCompany : c));
+      setSelectedCompany(updatedCompany);
+      setDecisionResults(prev => [result, ...prev].slice(0, 20));
+      addNotification(result.description, result.success ? 'success' : 'error');
+      if (startupGeneratorRef.current) {
+          const { updatedCompany: companyAfterMilestones, newlyAchieved } = startupGeneratorRef.current.checkMilestones(updatedCompany);
+          setStartupCompanies(prev => prev.map(c => c.id === companyAfterMilestones.id ? companyAfterMilestones : c));
+          setSelectedCompany(companyAfterMilestones);
+          if (newlyAchieved.length > 0) {
+              setNewlyAchievedMilestones(newlyAchieved);
+              newlyAchieved.forEach(milestone => {
+                  addNotification(`🎉 里程碑达成: ${milestone.title}`, 'success');
+              });
+          }
+          const { updatedCompany: companyAfterAchievements, newlyUnlocked } = startupGeneratorRef.current.checkAchievements(companyAfterMilestones);
+          setStartupCompanies(prev => prev.map(c => c.id === companyAfterAchievements.id ? companyAfterAchievements : c));
+          setSelectedCompany(companyAfterAchievements);
+          if (newlyUnlocked.length > 0) {
+              setNewlyUnlockedAchievements(newlyUnlocked);
+              newlyUnlocked.forEach(achievement => {
+                  addNotification(`🏆 成就解锁: ${achievement.title}`, 'success');
+              });
+          }
+          const progress = startupGeneratorRef.current.calculateGrowthProgress(companyAfterAchievements);
+          setCompanyGrowthProgress(progress);
+      }
+  };
+
+  const generateStartupCompanies = () => {
+      if (!startupGeneratorRef.current) return;
+      const sectors = Object.values(Sector);
+      const companies: StartupCompany[] = [];
+      for (const sector of sectors) {
+          const company = startupGeneratorRef.current.generateStartup(sector);
+          companies.push(company);
+      }
+      setStartupCompanies(companies);
+  };
+
+  const updateCompanyDailyProgress = (companyId: string) => {
+      if (!startupGeneratorRef.current) return;
+      const company = startupCompanies.find(c => c.id === companyId);
+      if (!company) return;
+      const updatedCompany = startupGeneratorRef.current.updateDailyProgress(company);
+      setStartupCompanies(prev => prev.map(c => c.id === companyId ? updatedCompany : c));
+      if (selectedCompany && selectedCompany.id === companyId) {
+          setSelectedCompany(updatedCompany);
+      }
+  };
+
+  const checkCompanyMilestones = (companyId: string) => {
+      if (!startupGeneratorRef.current) return;
+      const company = startupCompanies.find(c => c.id === companyId);
+      if (!company) return;
+      const { updatedCompany, newlyAchieved } = startupGeneratorRef.current.checkMilestones(company);
+      setStartupCompanies(prev => prev.map(c => c.id === companyId ? updatedCompany : c));
+      if (selectedCompany && selectedCompany.id === companyId) {
+          setSelectedCompany(updatedCompany);
+      }
+      if (newlyAchieved.length > 0) {
+          setNewlyAchievedMilestones(newlyAchieved);
+          newlyAchieved.forEach(milestone => {
+              addNotification(`🎉 里程碑达成: ${milestone.title}`, 'success');
+          });
+      }
+      const { updatedCompany: companyAfterAchievements, newlyUnlocked } = startupGeneratorRef.current.checkAchievements(updatedCompany);
+      setStartupCompanies(prev => prev.map(c => c.id === companyId ? companyAfterAchievements : c));
+      if (selectedCompany && selectedCompany.id === companyId) {
+          setSelectedCompany(companyAfterAchievements);
+      }
+      if (newlyUnlocked.length > 0) {
+          setNewlyUnlockedAchievements(newlyUnlocked);
+          newlyUnlocked.forEach(achievement => {
+              addNotification(`🏆 成就解锁: ${achievement.title}`, 'success');
+          });
+      }
+  };
+
+  const calculateCompanyGrowthProgress = (companyId: string) => {
+      if (!startupGeneratorRef.current) return;
+      const company = startupCompanies.find(c => c.id === companyId);
+      if (!company) return;
+      const progress = startupGeneratorRef.current.calculateGrowthProgress(company);
+      setCompanyGrowthProgress(progress);
+  };
+
+  const clearNewAchievements = () => {
+      setNewlyAchievedMilestones([]);
+      setNewlyUnlockedAchievements([]);
+  };
+
+  const createInvestmentRequest = useCallback((companyId: string, investmentAmount: number, equityRequested: number) => {
+      if (!investmentServiceRef.current || !activePlayerId) {
+          throw new Error("投资服务未初始化或玩家未登录");
+      }
+      
+      const player = players.find(p => p.id === activePlayerId);
+      if (!player) {
+          throw new Error("找不到当前玩家信息");
+      }
+      
+      const company = startupCompanies.find(c => c.id === companyId);
+      if (!company) {
+          throw new Error("找不到指定公司");
+      }
+      
+      const request = investmentServiceRef.current.createInvestmentRequest(
+          player.id,
+          player.name,
+          company,
+          investmentAmount,
+          equityRequested
+      );
+      
+      addNotification(`已提交对 ${company.name} 的投资请求，金额 ${investmentAmount} 万元`, 'info');
+      return request;
+  }, [activePlayerId, players, startupCompanies]);
+
+  const approveInvestmentRequest = useCallback((requestId: string) => {
+      if (!investmentServiceRef.current) {
+          return { success: false, message: "投资服务未初始化" };
+      }
+      
+      const request = investmentServiceRef.current.getRequest(requestId);
+      if (!request) {
+          return { success: false, message: "投资请求不存在" };
+      }
+      
+      const company = startupCompanies.find(c => c.id === request.companyId);
+      if (!company) {
+          return { success: false, message: "找不到对应公司" };
+      }
+      
+      const result = investmentServiceRef.current.approveInvestmentRequest(requestId, company);
+      if (result.success) {
+          addNotification(result.message, 'success');
+          
+          setStartupCompanies(prev => prev.map(company => {
+              if (company.id === request.companyId) {
+                  return {
+                      ...company,
+                      valuation: company.valuation + request.investmentAmount,
+                      funding: company.funding + request.investmentAmount
+                  };
+              }
+              return company;
+          }));
+      } else {
+          addNotification(result.message, 'error');
+      }
+      
+      return result;
+  }, [startupCompanies]);
+
+  const createInvestmentCompetition = useCallback((companyId: string, type: CompetitionType, targetAmount: number, duration: number) => {
+      if (!investmentServiceRef.current) {
+          throw new Error("投资服务未初始化");
+      }
+      
+      const company = startupCompanies.find(c => c.id === companyId);
+      if (!company) {
+          throw new Error("找不到指定公司");
+      }
+      
+      const competition = investmentServiceRef.current.createInvestmentCompetition(
+          company,
+          type,
+          targetAmount,
+          duration
+      );
+      
+      setInvestmentMarketplace(prev => ({
+          ...prev,
+          activeCompetitions: [...prev.activeCompetitions, competition]
+      }));
+      
+      addNotification(`已创建 ${company.name} 的投资竞赛`, 'info');
+      return competition;
+  }, [startupCompanies]);
+
+  const joinCompetition = useCallback((competitionId: string, investmentAmount: number) => {
+      if (!investmentServiceRef.current || !activePlayerId) {
+          return { success: false, message: "投资服务未初始化或玩家未登录" };
+      }
+      
+      const player = players.find(p => p.id === activePlayerId);
+      if (!player) {
+          return { success: false, message: "找不到当前玩家信息" };
+      }
+      
+      const result = investmentServiceRef.current.joinCompetition(competitionId, player.id, player.name, investmentAmount);
+      
+      if (result.success) {
+          addNotification(`成功加入投资竞赛，投资金额 ${investmentAmount} 万元`, 'success');
+          
+          setInvestmentMarketplace(prev => ({
+              ...prev,
+              activeCompetitions: prev.activeCompetitions.map(comp => 
+                  comp.id === competitionId ? result.competition! : comp
+              )
+          }));
+      } else {
+          addNotification(result.message, 'error');
+      }
+      
+      return result;
+  }, [activePlayerId, players]);
+
+  const resolveCompetition = useCallback((competitionId: string) => {
+      if (!investmentServiceRef.current) {
+          return { message: "投资服务未初始化" };
+      }
+      
+      const competition = investmentServiceRef.current.getCompetition(competitionId);
+      if (!competition) {
+          return { message: "竞赛不存在" };
+      }
+      
+      const company = startupCompanies.find(c => c.id === competition.companyId);
+      if (!company) {
+          return { message: "找不到对应公司" };
+      }
+      
+      const result = investmentServiceRef.current.resolveCompetition(competitionId, company);
+      
+      if (result.winner) {
+          addNotification(`投资竞赛结束，获胜者: ${result.winner.playerName}，获得 ${result.winner.equityShare.toFixed(2)}% 股权`, 'success');
+          
+          setStartupCompanies(prev => prev.map(company => {
+              if (company.id === competition.companyId) {
+                  return {
+                      ...company,
+                      valuation: company.valuation + competition.currentTotal,
+                      funding: company.funding + competition.currentTotal
+                  };
+              }
+              return company;
+          }));
+      }
+      
+      setInvestmentMarketplace(prev => ({
+          ...prev,
+          activeCompetitions: prev.activeCompetitions.filter(comp => comp.id !== competitionId)
+      }));
+      
+      return result;
+  }, [startupCompanies]);
+
+  const createInvestmentCooperation = useCallback((name: string, companyId: string, type: CooperationType, targetAmount: number, minParticipants: number, maxParticipants: number, duration: number) => {
+      if (!investmentServiceRef.current) {
+          throw new Error("投资服务未初始化");
+      }
+      
+      const company = startupCompanies.find(c => c.id === companyId);
+      if (!company) {
+          throw new Error("找不到指定公司");
+      }
+      
+      const cooperation = investmentServiceRef.current.createInvestmentCooperation(
+          name,
+          company,
+          type,
+          targetAmount,
+          minParticipants,
+          maxParticipants,
+          duration
+      );
+      
+      setInvestmentMarketplace(prev => ({
+          ...prev,
+          activeCooperations: [...prev.activeCooperations, cooperation]
+      }));
+      
+      addNotification(`已创建投资合作项目: ${name}`, 'info');
+      return cooperation;
+  }, [startupCompanies]);
+
+  const joinCooperation = useCallback((cooperationId: string, investmentAmount: number, contribution: string) => {
+      if (!investmentServiceRef.current || !activePlayerId) {
+          return { success: false, message: "投资服务未初始化或玩家未登录" };
+      }
+      
+      const player = players.find(p => p.id === activePlayerId);
+      if (!player) {
+          return { success: false, message: "找不到当前玩家信息" };
+      }
+      
+      const result = investmentServiceRef.current.joinCooperation(cooperationId, player.id, player.name, investmentAmount, contribution);
+      
+      if (result.success) {
+          addNotification(`成功加入投资合作项目，投资金额 ${investmentAmount} 万元`, 'success');
+          
+          setInvestmentMarketplace(prev => ({
+              ...prev,
+              activeCooperations: prev.activeCooperations.map(coop => 
+                  coop.id === cooperationId ? result.cooperation! : coop
+              )
+          }));
+      } else {
+          addNotification(result.message, 'error');
+      }
+      
+      return result;
+  }, [activePlayerId, players]);
+
+  const finalizeCooperation = useCallback((cooperationId: string) => {
+      if (!investmentServiceRef.current) {
+          return { success: false, message: "投资服务未初始化" };
+      }
+      
+      const cooperation = investmentServiceRef.current.getCooperation(cooperationId);
+      if (!cooperation) {
+          return { success: false, message: "合作项目不存在" };
+      }
+      
+      const company = startupCompanies.find(c => c.id === cooperation.companyId);
+      if (!company) {
+          return { success: false, message: "找不到对应公司" };
+      }
+      
+      const result = investmentServiceRef.current.finalizeCooperation(cooperationId, company);
+      
+      if (result.success) {
+          addNotification(`投资合作项目已完成，${result.participants?.length} 位参与者获得相应股权`, 'success');
+          
+          setStartupCompanies(prev => prev.map(company => {
+              if (company.id === cooperation.companyId) {
+                  return {
+                      ...company,
+                      valuation: company.valuation + cooperation.currentTotal,
+                      funding: company.funding + cooperation.currentTotal
+                  };
+              }
+              return company;
+          }));
+      } else {
+          addNotification(result.message, 'error');
+      }
+      
+      setInvestmentMarketplace(prev => ({
+          ...prev,
+          activeCooperations: prev.activeCooperations.filter(coop => coop.id !== cooperationId)
+      }));
+      
+      return result;
+  }, [startupCompanies]);
+
+  const createAlliance = useCallback((name: string, targetCompanies: string[], allianceGoals: string[]) => {
+      if (!investmentServiceRef.current || !activePlayerId) {
+          throw new Error("投资服务未初始化或玩家未登录");
+      }
+      
+      const player = players.find(p => p.id === activePlayerId);
+      if (!player) {
+          throw new Error("找不到当前玩家信息");
+      }
+      
+      const alliance = investmentServiceRef.current.createAlliance(name, player.id, player.name, targetCompanies, allianceGoals);
+      
+      setInvestmentMarketplace(prev => ({
+          ...prev,
+          activeAlliances: [...prev.activeAlliances, alliance]
+      }));
+      
+      addNotification(`已创建投资联盟: ${name}`, 'info');
+      return alliance;
+  }, [activePlayerId, players]);
+
+  const joinAlliance = useCallback((allianceId: string) => {
+      if (!investmentServiceRef.current || !activePlayerId) {
+          return { success: false, message: "投资服务未初始化或玩家未登录" };
+      }
+      
+      const player = players.find(p => p.id === activePlayerId);
+      if (!player) {
+          return { success: false, message: "找不到当前玩家信息" };
+      }
+      
+      const result = investmentServiceRef.current.joinAlliance(allianceId, player.id, player.name);
+      
+      if (result.success) {
+          addNotification(`成功加入投资联盟: ${result.alliance?.name}`, 'success');
+          
+          setInvestmentMarketplace(prev => ({
+              ...prev,
+              activeAlliances: prev.activeAlliances.map(alliance => 
+                  alliance.id === allianceId ? result.alliance! : alliance
+              )
+          }));
+      } else {
+          addNotification(result.message, 'error');
+      }
+      
+      return result;
+  }, [activePlayerId, players]);
+
+  const contributeToAlliance = useCallback((allianceId: string, contributionType: 'capital' | 'influence' | 'knowledge' | 'network', amount: number) => {
+      if (!investmentServiceRef.current || !activePlayerId) {
+          return { success: false, message: "投资服务未初始化或玩家未登录" };
+      }
+      
+      const result = investmentServiceRef.current.contributeToAlliance(allianceId, activePlayerId, contributionType, amount);
+      
+      if (result.success) {
+          addNotification(`成功向联盟贡献 ${contributionType}: ${amount}`, 'success');
+          
+          setInvestmentMarketplace(prev => ({
+              ...prev,
+              activeAlliances: prev.activeAlliances.map(alliance => 
+                  alliance.id === allianceId ? result.alliance! : alliance
+              )
+          }));
+      } else {
+          addNotification(result.message, 'error');
+      }
+      
+      return result;
+  }, [activePlayerId]);
+
+  const getPlayerInvestmentProfile = useCallback((playerId: string) => {
+      if (!investmentServiceRef.current) {
+          throw new Error("投资服务未初始化");
+      }
+      
+      const player = players.find(p => p.id === playerId);
+      if (!player) {
+          throw new Error("找不到玩家信息");
+      }
+      
+      return investmentServiceRef.current.getPlayerInvestmentProfile(playerId, player.name);
+  }, [players]);
+
+  const selectPlayerProfile = useCallback((profile: PlayerInvestmentProfile | null) => {
+      setSelectedPlayerProfile(profile);
+  }, []);
+
+  const updateInvestmentLeaderboard = useCallback(() => {
+      if (!investmentServiceRef.current) {
+          return;
+      }
+      
+      const leaderboard = investmentServiceRef.current.getLeaderboard();
+      
+      setInvestmentMarketplace(prev => ({
+          ...prev,
+          leaderboard
+      }));
+  }, []);
+
+  const refreshInvestmentMarketplace = useCallback(() => {
+      if (!investmentServiceRef.current) {
+          return;
+      }
+      
+      const marketplace = investmentServiceRef.current.getMarketplace();
+      const events = investmentServiceRef.current.getInvestmentEvents();
+      
+      setInvestmentMarketplace(marketplace);
+      setInvestmentEvents(events);
+  }, []);
+
   const createBots = (count: number, initialCash: number, currentStocks: Stock[]): Player[] => { const bots: Player[] = []; const retailCount = Math.floor(count * 0.70); const proCount = Math.floor(count * 0.20); const hotMoneyCount = Math.floor(count * 0.05); const whaleCount = Math.max(1, count - retailCount - proCount - hotMoneyCount); const createBot = (id: string, prefix: string, name: string, cash: number, level: BotLevel) => { const portfolio: { [id: string]: number } = {}; const costBasis: { [id: string]: number } = {}; const numberOfStocksHeld = Math.floor(Math.random() * 6) + 2; for (let k = 0; k < numberOfStocksHeld; k++) { const randomStock = currentStocks[Math.floor(Math.random() * currentStocks.length)]; const maxAffordable = Math.floor((cash * 0.5) / randomStock.price); let qty = Math.floor(Math.random() * maxAffordable * 0.5); qty = Math.floor(qty / 100) * 100; if (qty > 0) { const oldQty = portfolio[randomStock.id] || 0; const currentCost = costBasis[randomStock.id] || randomStock.price; const totalVal = (oldQty * currentCost) + (qty * randomStock.price); const newTotal = oldQty + qty; costBasis[randomStock.id] = totalVal / newTotal; portfolio[randomStock.id] = newTotal; } } return { id, prefix, name, displayName: `[${prefix}] ${name}`, cash, debt: 0, portfolio, costBasis, pendingOrders: [], tradeHistory: [], initialCapital: cash, isBot: true, botLevel: level, totalValueHistory: [], stats: { tradeCount: 0, peakValue: cash, worstValue: cash }, lastBuyTimestamp: 0 }; }; for (let i = 0; i < retailCount; i++) bots.push(createBot(`bot_retail_${i}`, '个人', BOT_NAMES.NEWBIE[i % BOT_NAMES.NEWBIE.length] + (i>10?i:''), initialCash, BotLevel.NEWBIE)); for (let i = 0; i < proCount; i++) bots.push(createBot(`bot_pro_${i}`, '大户', BOT_NAMES.PRO[i % BOT_NAMES.PRO.length] + (i>5?i:''), initialCash * 5, BotLevel.PRO)); for (let i = 0; i < hotMoneyCount; i++) bots.push(createBot(`bot_hot_${i}`, '游资', BOT_NAMES.HOT_MONEY[i % BOT_NAMES.HOT_MONEY.length], initialCash * 20, BotLevel.HOT_MONEY)); for (let i = 0; i < whaleCount; i++) bots.push(createBot(`bot_whale_${i}`, '机构', BOT_NAMES.WHALE[i % BOT_NAMES.WHALE.length], initialCash * 50, BotLevel.WHALE)); return bots; };
   useEffect(() => { if (phase === GamePhase.LOBBY && isHost) { setPlayers(prev => { const realPlayers = prev.filter(p => !p.isBot); const bots = createBots(settings.botCount, settings.initialCash, stocksRef.current); return [...realPlayers, ...bots]; }); } }, [settings.botCount, settings.initialCash, phase, isHost]);
   const addNotification = (message: string, type: Notification['type'] = 'info') => { const id = Date.now().toString() + Math.random(); setNotifications(prev => [...prev, { id, message, type }]); setTimeout(() => { setNotifications(prev => prev.filter(n => n.id !== id)); }, 4000); };
@@ -725,6 +1606,26 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
                           history: [...s.history, { time: Date.now(), price: newPrice, volume: 0 }]
                       }; 
                   })); 
+                  // Update startup companies daily progress
+                  if (startupGeneratorRef.current) {
+                      setStartupCompanies(prevCompanies => {
+                          return prevCompanies.map(company => {
+                              const updatedCompany = startupGeneratorRef.current!.updateDailyProgress(company);
+                              const { updatedCompany: companyAfterMilestones, newlyAchieved } = startupGeneratorRef.current!.checkMilestones(updatedCompany);
+                              const { updatedCompany: companyAfterAchievements, newlyUnlocked } = startupGeneratorRef.current!.checkAchievements(companyAfterMilestones);
+                              
+                              newlyAchieved.forEach(milestone => {
+                                  addNotification(`🎉 [${company.name}] 里程碑达成: ${milestone.title}`, 'success');
+                              });
+                              
+                              newlyUnlocked.forEach(achievement => {
+                                  addNotification(`🏆 [${company.name}] 成就解锁: ${achievement.title}`, 'success');
+                              });
+                              
+                              return companyAfterAchievements;
+                          });
+                      });
+                  }
                   addNotification(`第 ${currentDayRef.current + 1} 个交易日集合竞价开始`, 'info'); 
                   return settings.openingDuration; // Use opening duration
               } else { 
@@ -743,6 +1644,39 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (tradingSession === TradingSession.BREAK || tradingSession === TradingSession.DAY_END) return;
 
     const marketInterval = setInterval(async () => {
+        // 0. Macro Event Generation and Application
+        if (macroEventServiceRef.current) {
+            const newEvent = macroEventServiceRef.current.generateRandomEvent();
+            if (newEvent) {
+                macroEventServiceRef.current.applyEvent(newEvent);
+                const newsItem: MarketNews = {
+                    id: `macro_${newEvent.id}`,
+                    type: NewsType.NEWS,
+                    title: newEvent.title,
+                    content: newEvent.description,
+                    impact: newEvent.severity === 'high' || newEvent.severity === 'extreme' ? 'negative' : 'neutral',
+                    severity: newEvent.severity === 'extreme' ? 5 : newEvent.severity === 'high' ? 4 : newEvent.severity === 'medium' ? 3 : 2,
+                    affectedSectors: newEvent.affectedSectors.map(s => {
+                        const sectorMap: Record<string, Sector> = {
+                            '互联网/科技': Sector.TECH,
+                            '新能源/造车': Sector.ENERGY,
+                            '大消费/食品': Sector.CONSUMER,
+                            '金融/银行': Sector.FINANCE,
+                            '房地产/基建': Sector.REAL_ESTATE,
+                            '高端制造': Sector.MANUFACTURING,
+                            '农业/养殖': Sector.AGRICULTURE,
+                            '物流/运输': Sector.LOGISTICS
+                        };
+                        return sectorMap[s] || Sector.TECH;
+                    }),
+                    timestamp: Date.now(),
+                    source: '宏观经济分析'
+                };
+                setNews(prev => [newsItem, ...prev].slice(0, 50));
+            }
+            macroEventServiceRef.current.update();
+        }
+
         // 1. Global Market Cycle (Bear/Bull trend)
         if (marketCycleRef.current.phaseDuration <= 0) {
             const isBear = Math.random() > 0.6;
@@ -840,46 +1774,32 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 });
             });
 
-            // --- D. Physics-based Price Calculation ---
-            // 1. Momentum Decay (Inertia)
-            const momentumDamping = 0.90; // Retain 90% of previous velocity
-            let currentMomentum = (stock.momentum || 0) * momentumDamping;
+            // --- D. Enhanced Price Calculation with Macro Events and Company Decisions ---
+            const priceFactors = enhancedPriceCalculationServiceRef.current?.calculatePriceChange(
+                stock,
+                impactNetBuyVolume,
+                stock.price * settingsRef.current.marketDepth,
+                globalTrend,
+                settingsRef.current
+            ) || {
+                volumeImpact: 0,
+                momentum: 0,
+                drift: 0,
+                macroImpact: 0,
+                sectorImpact: 0,
+                companyDecisionImpact: 0,
+                totalChangePercent: 0
+            };
 
-            // 2. Market Impact from Net Volume
-            const marketDepth = stock.price * settingsRef.current.marketDepth; 
-            let volumeImpact = impactNetBuyVolume / marketDepth; 
+            let newPrice = stock.price * (1 + priceFactors.totalChangePercent);
             
-            // --- NEW: CLAMP VOLUME IMPACT (SOFT CAP) ---
-            // Prevents massive V-shapes. Max 3% swing per tick from volume alone.
-            volumeImpact = Math.max(-0.03, Math.min(0.03, volumeImpact));
-            
-            // 3. Natural Drift / Micro-Structure Noise
-            // Even with 0 volume, price drifts slightly due to spread/MM algo
-            const drift = (Math.random() - 0.5) * stock.volatility * 0.05; 
-
-            // 4. Update Momentum
-            // New momentum = Old Momentum + New Force (Volume)
-            currentMomentum += (volumeImpact * 0.5); 
-
-            // 5. Apply Momentum to Price
-            // Price Change = Momentum + Drift + Macro Trend
-            let totalChangePercent = currentMomentum + drift + (globalTrend * stock.beta * 0.005);
-            
-            // Cap max change per tick to prevent teleporting
-            if (totalChangePercent > 0.03) totalChangePercent = 0.03;
-            if (totalChangePercent < -0.03) totalChangePercent = -0.03;
-
-            let newPrice = stock.price * (1 + totalChangePercent);
-            
-            // Ensure price never stays *exactly* identical to float precision to help charts
             if (Math.abs(newPrice - stock.price) < 0.001) {
                 newPrice += (Math.random() > 0.5 ? 0.01 : -0.01);
             }
 
-            // Limit Check
             newPrice = Math.max(0.01, newPrice);
-            if (newPrice >= limitUp) { newPrice = limitUp; currentMomentum = 0; } // Hit wall, stop
-            else if (newPrice <= limitDown) { newPrice = limitDown; currentMomentum = 0; }
+            if (newPrice >= limitUp) { newPrice = limitUp; }
+            else if (newPrice <= limitDown) { newPrice = limitDown; }
             
             const newTotalVolume = (stock.totalVolume || 0) + realTickVolume;
             
@@ -887,8 +1807,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 ...stock,
                 price: newPrice,
                 lastPrice: stock.price,
-                trend: stock.trend * 0.99 + (totalChangePercent * 0.1), // Trend slowly follows price action
-                momentum: currentMomentum, // Store for next tick
+                trend: stock.trend * 0.99 + (priceFactors.totalChangePercent * 0.1),
+                momentum: priceFactors.momentum,
                 totalVolume: newTotalVolume,
                 history: [...stock.history, { time: Date.now(), price: newPrice, volume: realTickVolume }].slice(-500),
                 transactions: [...transactions, ...stock.transactions].slice(0, 50)
@@ -976,7 +1896,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [phase, tradingSession, settings.newsFrequency, isClient]);
 
   return (
-    <GameContext.Provider value={{ phase, currentDay, tradingSession, stocks, marketIndex, marketIndexHistory, players, activePlayerId, news, timeLeft, settings, roomCode, notifications, broadcastEvent, marketSentiment, midDayReport, dailyReport, danmuList, isHostOnline, isMqttConnected, lastSyncTime, isDataSynced, updateSettings, regenerateStocks, updateStockName, joinGame, startGame, stopGame, resetGame, placeOrder, cancelOrder, kickPlayer, dismissNotification, placeBet, borrowMoney, repayDebt, sendDanmu, distributeDividends, requestDataSync }}>
+    <GameContext.Provider value={{ phase, currentDay, tradingSession, stocks, marketIndex, marketIndexHistory, players, activePlayerId, news, timeLeft, settings, roomCode, notifications, broadcastEvent, marketSentiment, midDayReport, dailyReport, danmuList, startupCompanies, selectedCompany, availableDecisions, decisionResults, companyGrowthProgress, newlyAchievedMilestones, newlyUnlockedAchievements, investmentMarketplace, selectedPlayerProfile, investmentEvents, isHostOnline, isMqttConnected, lastSyncTime, isDataSynced, mqttConnectionError, updateSettings, regenerateStocks, updateStockName, joinGame, startGame, stopGame, resetGame, placeOrder, cancelOrder, kickPlayer, dismissNotification, placeBet, borrowMoney, repayDebt, sendDanmu, distributeDividends, requestDataSync, selectCompany, executeCompanyDecision, generateStartupCompanies, updateCompanyDailyProgress, checkCompanyMilestones, calculateCompanyGrowthProgress, clearNewAchievements, createInvestmentRequest, approveInvestmentRequest, createInvestmentCompetition, joinCompetition, resolveCompetition, createInvestmentCooperation, joinCooperation, finalizeCooperation, createAlliance, joinAlliance, contributeToAlliance, getPlayerInvestmentProfile, selectPlayerProfile, updateInvestmentLeaderboard, refreshInvestmentMarketplace }}>
       {children}
     </GameContext.Provider>
   );

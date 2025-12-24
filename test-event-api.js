@@ -7,7 +7,7 @@ const testEventAPI = async () => {
         const marketTrend = 0.2; // 轻微上涨趋势
         const activeSectors = ['科技', '金融', '医疗', '能源', '消费'];
         
-        const response = await fetch('http://localhost:3001/api/events/generate', {
+        const response = await fetch('/api/events/generate', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

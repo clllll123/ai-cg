@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useUser } from '../../context/UserContext';
+import { useTask } from '../../context/TaskContext';
 import { Link, useNavigate } from 'react-router-dom';
 import { adminApi } from '../../services/api';
 import LevelUpModal from '../../components/LevelUpModal';
+import TaskPanel from '../../components/TaskPanel';
 
 const StatCard: React.FC<{ label: string; value: string | number; icon: string; color: string }> = ({ label, value, icon, color }) => (
     <div className={`group bg-gray-800/40 backdrop-blur-md border border-gray-700/50 p-5 rounded-2xl flex items-center gap-4 hover:bg-gray-700/50 transition-all hover:scale-[1.02] shadow-lg hover:shadow-${color}-900/20`}>
@@ -31,20 +33,14 @@ const TaskItem: React.FC<{ title: string; reward: string; isDone: boolean }> = (
 const StudentDashboard: React.FC<{ user: any }> = ({ user }) => (
     <div className="space-y-6">
         {/* Primary Actions - Mobile Optimized */}
-        <div className="grid grid-cols-2 gap-4">
-            <Link to="/game/scan" className="bg-gradient-to-br from-blue-600 to-blue-800 p-6 rounded-2xl shadow-lg shadow-blue-900/40 flex flex-col items-center justify-center gap-3 hover:scale-[1.02] transition-transform relative overflow-hidden group">
+        <div className="grid grid-cols-1 gap-4">
+            <Link to="/game-plaza" className="bg-gradient-to-br from-blue-600 to-purple-800 p-6 rounded-2xl shadow-lg shadow-blue-900/40 flex flex-col items-center justify-center gap-3 hover:scale-[1.02] transition-transform relative overflow-hidden group">
                 <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-2xl -mr-8 -mt-8 group-hover:bg-white/20 transition-colors"></div>
                 <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm">
-                    <span className="material-icons text-3xl text-white">qr_code_scanner</span>
+                    <span className="material-icons text-3xl text-white">sports_esports</span>
                 </div>
-                <div className="font-bold text-lg">扫码加入</div>
-            </Link>
-            <Link to="/game/join" className="bg-gradient-to-br from-purple-600 to-purple-800 p-6 rounded-2xl shadow-lg shadow-purple-900/40 flex flex-col items-center justify-center gap-3 hover:scale-[1.02] transition-transform relative overflow-hidden group">
-                <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-2xl -mr-8 -mt-8 group-hover:bg-white/20 transition-colors"></div>
-                <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm">
-                    <span className="material-icons text-3xl text-white">keyboard</span>
-                </div>
-                <div className="font-bold text-lg">输入房号</div>
+                <div className="font-bold text-lg">查看游戏广场</div>
+                <div className="text-sm text-white/80">发现局域网游戏房间</div>
             </Link>
         </div>
 
@@ -82,22 +78,184 @@ const StudentDashboard: React.FC<{ user: any }> = ({ user }) => (
     </div>
 );
 
+// 优化后的创建房间按钮组件 - 性能优化版本
+const CreateRoomButton: React.FC<{ children: React.ReactNode; description: string }> = React.memo(({ children, description }) => {
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [showError, setShowError] = useState(false);
+    const [isSuccess, setIsSuccess] = useState(false);
+    const navigate = useNavigate();
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const successTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    const handleClick = useCallback(async () => {
+        if (isLoading) return;
+
+        setError(null);
+        setShowError(false);
+        setIsLoading(true);
+        setIsSuccess(false);
+
+        try {
+            const startTime = performance.now();
+            
+            const token = localStorage.getItem('token');
+            
+            const response = await fetch('/api/game-plaza/rooms/generate-code', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify({ timestamp: Date.now() })
+            });
+
+            if (!response.ok) {
+                throw new Error(`服务器错误: ${response.status} ${response.statusText}`);
+            }
+
+            const text = await response.text();
+            
+            if (!text.trim()) {
+                throw new Error('服务器返回空响应，请确保后端服务已启动');
+            }
+
+            let result;
+            try {
+                result = JSON.parse(text);
+            } catch (parseErr) {
+                console.error('JSON解析错误:', text);
+                throw new Error('服务器返回数据格式异常');
+            }
+
+            const elapsed = performance.now() - startTime;
+
+            if (result.success) {
+                setIsSuccess(true);
+                const roomCode = result.data?.roomCode || Math.random().toString(36).substring(2, 8).toUpperCase();
+                const remainingDelay = Math.max(0, 600 - elapsed);
+                
+                successTimeoutRef.current = setTimeout(() => {
+                    navigate(`/game/bigscreen?roomCode=${roomCode}&step=scan`);
+                }, remainingDelay);
+            } else {
+                throw new Error(result.error || '生成房间失败');
+            }
+        } catch (err: any) {
+            console.error('创建房间错误:', err);
+            setError(err.message || '创建房间失败，请检查后端服务是否运行');
+            setShowError(true);
+            setIsLoading(false);
+            setTimeout(() => setShowError(false), 5000);
+        }
+    }, [isLoading, navigate]);
+
+    useEffect(() => {
+        return () => {
+            if (successTimeoutRef.current) {
+                clearTimeout(successTimeoutRef.current);
+            }
+        };
+    }, []);
+
+    const buttonClassName = useMemo(() => {
+        const base = 'group relative bg-gradient-to-br from-blue-900 to-blue-950 border border-blue-500/30 p-8 rounded-3xl overflow-hidden transition-all shadow-lg hover:shadow-blue-900/20 w-full text-left';
+        const disabled = isLoading || isSuccess ? 'opacity-80 cursor-not-allowed' : 'hover:border-blue-500/60';
+        return `${base} ${disabled}`;
+    }, [isLoading, isSuccess]);
+
+    const iconClassName = useMemo(() => {
+        const base = 'w-16 h-16 rounded-2xl bg-blue-600 flex items-center justify-center mb-6 shadow-lg shadow-blue-900/40 group-hover:scale-110 transition-all duration-300';
+        return `${base} ${isLoading ? 'animate-shake' : ''}`;
+    }, [isLoading]);
+
+    const titleClassName = useMemo(() => {
+        const base = 'text-2xl font-black mb-2 text-white transition-all duration-300';
+        return `${base} ${isLoading ? 'translate-x-2' : ''}`;
+    }, [isLoading]);
+
+    const descClassName = useMemo(() => {
+        const base = 'text-blue-200/60 text-sm leading-relaxed max-w-xs transition-all duration-300';
+        return `${base} ${isLoading ? 'opacity-50' : ''}`;
+    }, [isLoading]);
+
+    return (
+        <div className="relative">
+            <button
+                ref={buttonRef}
+                onClick={handleClick}
+                disabled={isLoading || isSuccess}
+                className={buttonClassName}
+            >
+                {isSuccess && (
+                    <div className="absolute inset-0 bg-green-900/60 backdrop-blur-sm flex items-center justify-center z-20 animate-success-pulse">
+                        <div className="flex flex-col items-center gap-3 animate-bounce-in">
+                            <div className="h-16 w-16 rounded-full bg-green-500 flex items-center justify-center animate-scale-in">
+                                <span className="material-icons text-4xl text-white">check</span>
+                            </div>
+                            <span className="text-green-300 text-lg font-medium animate-fade-in">创建成功!</span>
+                        </div>
+                    </div>
+                )}
+
+                {isLoading && !isSuccess && (
+                    <div className="absolute inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-20">
+                        <div className="flex flex-col items-center gap-3">
+                            <div className="relative">
+                                <div className="animate-spin h-12 w-12 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+                                <div className="absolute inset-0 animate-ping opacity-30">
+                                    <div className="h-full w-full border-4 border-blue-500 rounded-full"></div>
+                                </div>
+                            </div>
+                            <span className="text-blue-300 text-sm font-medium animate-pulse">正在创建房间...</span>
+                        </div>
+                    </div>
+                )}
+
+                <div className="absolute top-0 right-0 w-40 h-40 bg-blue-500/10 rounded-full blur-3xl -mr-10 -mt-10 group-hover:bg-blue-500/20 transition-colors duration-500"></div>
+                <div className="relative z-10">
+                    <div className={iconClassName}>
+                        {isSuccess ? (
+                            <span className="material-icons text-3xl text-white animate-pop-in">check_circle</span>
+                        ) : isLoading ? (
+                            <span className="material-icons text-3xl text-white animate-spin-slow">hourglass_empty</span>
+                        ) : (
+                            <span className="material-icons text-3xl text-white group-hover:rotate-90 transition-transform duration-300">add_circle</span>
+                        )}
+                    </div>
+                    <h3 className={titleClassName}>{children}</h3>
+                    <p className={descClassName}>{description}</p>
+                </div>
+            </button>
+
+            {showError && error && (
+                <div className="absolute bottom-0 left-0 right-0 transform translate-y-full mt-2 bg-red-900/90 backdrop-blur border border-red-500/50 rounded-xl p-4 animate-slide-up z-50">
+                    <div className="flex items-center gap-3 text-red-200">
+                        <div className="h-8 w-8 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0 animate-wiggle">
+                            <span className="material-icons text-sm">error</span>
+                        </div>
+                        <span className="text-sm font-medium flex-1">{error}</span>
+                        <button
+                            onClick={() => setShowError(false)}
+                            className="ml-auto text-red-400 hover:text-red-200 transition-colors p-1 hover:bg-red-500/20 rounded"
+                        >
+                            <span className="material-icons text-sm">close</span>
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+});
+
 const TeacherDashboard: React.FC<{ user: any }> = ({ user }) => (
     <div className="space-y-8">
-        {/* Primary Actions */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-             <Link to="/game/bigscreen" className="group relative bg-gradient-to-br from-blue-900 to-blue-950 border border-blue-500/30 p-8 rounded-3xl overflow-hidden hover:border-blue-500/60 transition-all shadow-lg hover:shadow-blue-900/20">
-                <div className="absolute top-0 right-0 w-40 h-40 bg-blue-500/10 rounded-full blur-3xl -mr-10 -mt-10 group-hover:bg-blue-500/20 transition-colors"></div>
-                <div className="relative z-10">
-                    <div className="w-16 h-16 rounded-2xl bg-blue-600 flex items-center justify-center mb-6 shadow-lg shadow-blue-900/40 group-hover:scale-110 transition-transform">
-                        <span className="material-icons text-3xl text-white">add_circle</span>
-                    </div>
-                    <h3 className="text-2xl font-black mb-2 text-white">创建对局 (Host)</h3>
-                    <p className="text-blue-200/60 text-sm leading-relaxed max-w-xs">配置市场初始参数，生成游戏房间二维码，邀请学生加入。</p>
-                </div>
-             </Link>
+            <CreateRoomButton description="配置市场初始参数，生成游戏房间二维码，邀请学生加入。">
+                创建对局 (Host)
+            </CreateRoomButton>
 
-             <Link to="/stats" className="group relative bg-gradient-to-br from-purple-900 to-purple-950 border border-purple-500/30 p-8 rounded-3xl overflow-hidden hover:border-purple-500/60 transition-all shadow-lg hover:shadow-purple-900/20">
+            <Link to="/stats" className="group relative bg-gradient-to-br from-purple-900 to-purple-950 border border-purple-500/30 p-8 rounded-3xl overflow-hidden hover:border-purple-500/60 transition-all shadow-lg hover:shadow-purple-900/20">
                 <div className="absolute top-0 right-0 w-40 h-40 bg-purple-500/10 rounded-full blur-3xl -mr-10 -mt-10 group-hover:bg-purple-500/20 transition-colors"></div>
                 <div className="relative z-10">
                     <div className="w-16 h-16 rounded-2xl bg-purple-600 flex items-center justify-center mb-6 shadow-lg shadow-purple-900/40 group-hover:scale-110 transition-transform">
@@ -106,10 +264,9 @@ const TeacherDashboard: React.FC<{ user: any }> = ({ user }) => (
                     <h3 className="text-2xl font-black mb-2 text-white">数据中心</h3>
                     <p className="text-purple-200/60 text-sm leading-relaxed max-w-xs">查看历史对局记录，分析学生交易行为和表现数据。</p>
                 </div>
-             </Link>
+            </Link>
         </div>
 
-        {/* Stats Overview */}
         <div>
             <h3 className="font-bold mb-4 flex items-center gap-2 text-gray-400">
                 <span className="material-icons">query_stats</span> 教学概览
@@ -129,6 +286,7 @@ const DashboardContent: React.FC<{ user: any; canHost: boolean }> = ({ user, can
 
 export const Dashboard: React.FC = () => {
     const { user, logout } = useUser();
+    const { isTaskPanelOpen, setTaskPanelOpen } = useTask();
     const navigate = useNavigate();
 
     const [showCreateTeacher, setShowCreateTeacher] = useState(false);
@@ -240,7 +398,7 @@ export const Dashboard: React.FC = () => {
                                 <span className="material-icons">emoji_events</span>
                                 <span>排行榜</span>
                             </button>
-                            <button className="w-full flex items-center gap-3 p-3 hover:bg-gray-800 text-gray-400 rounded-lg transition-colors">
+                            <button onClick={() => setTaskPanelOpen(!isTaskPanelOpen)} className="w-full flex items-center gap-3 p-3 hover:bg-gray-800 text-gray-400 rounded-lg transition-colors">
                                 <span className="material-icons">assignment</span>
                                 <span>任务中心</span>
                             </button>
@@ -411,6 +569,15 @@ export const Dashboard: React.FC = () => {
                 >
                     测试等级提升
                 </button>
+            )}
+
+            {/* Task Panel */}
+            {isTaskPanelOpen && (
+                <div className="fixed inset-0 z-50 flex items-end justify-end p-2 sm:p-4 pointer-events-none">
+                    <div className="pointer-events-auto w-full max-w-sm sm:max-w-md animate-slide-up">
+                        <TaskPanel />
+                    </div>
+                </div>
             )}
         </div>
     );
